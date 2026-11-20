@@ -36,8 +36,9 @@ object MovnetApi {
         } finally { connection.disconnect() }
     }
 
-    suspend fun authenticate(email: String, password: String, register: Boolean): String {
+     suspend fun authenticate(email: String, password: String, register: Boolean, displayName: String = ""): String {
         val json = JSONObject().put("email", email.trim()).put("password", password)
+        if (register) json.put("display_name", displayName.trim())
         val result = JSONObject(request(if (register) "/auth/register" else "/auth/login", "POST", json))
         return result.getString("access_token")
     }
@@ -57,4 +58,9 @@ object MovnetApi {
     }
 
     suspend fun loadProfile(token: String): JSONObject = JSONObject(request("/me", token = token))
+
+    suspend fun updateProfile(token: String, displayName: String): JSONObject {
+        val body = JSONObject().put("display_name", displayName.trim())
+        return JSONObject(request("/me", "PUT", body, token))
+    }
 }
