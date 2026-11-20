@@ -2,14 +2,19 @@ package com.movnet.app
 
 import android.os.Bundle
 import android.content.Context
+import android.content.pm.ActivityInfo
+import android.view.View
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalContext
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -547,9 +552,10 @@ private fun SubscriptionCard(
 @Composable
 fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
     val context = LocalContext.current
-    val player = remember {
-        ExoPlayer.Builder(context).build()
-    }
+    val activity = context as? ComponentActivity
+    var fullScreen by remember { mutableStateOf(false) }
+    val player = remember { ExoPlayer.Builder(context).build() }
+
     LaunchedEffect(movie.streamUrl) {
         val url = movie.streamUrl?.takeIf { it.startsWith("https://") }
         player.stop()
@@ -560,20 +566,92 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
             player.playWhenReady = true
         }
     }
-    DisposableEffect(player) { onDispose { player.release() } }
-    Column(Modifier.fillMaxSize().background(Background)) {
-        Text("‹  Назад", color = Color.White, modifier = Modifier.clickable { onBack() }.padding(18.dp))
-        Text(movie.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
+
+    LaunchedEffect(fullScreen) {
+        activity?.let { host ->
+            host.requestedOrientation = if (fullScreen) {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+            if (fullScreen) {
+                host.window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                host.window.decorView.systemUiVisibility = (
+                    View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                )
+            } else {
+                host.window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                host.window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            }
+        }
+    }
+
+    BackHandler(enabled = fullScreen) { fullScreen = false }
+
+    DisposableEffect(player, activity) {
+        onDispose {
+            player.release()
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            activity?.window?.decorView?.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        }
+    }
+
+    Column(Modifier.fillMaxSize().background(Color.Black)) {
+        if (!fullScreen) {
+            Text("‹  Назад", color = Color.White,
+                modifier = Modifier.clickable { onBack() }.padding(18.dp))
+            Text(movie.title, color = Color.White, fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
+        }
+
         if (movie.streamUrl?.startsWith("https://") == true) {
-            AndroidView(factory = { ctx -> PlayerView(ctx).apply { this.player = player; useController = true } }, modifier = Modifier.fillMaxWidth().aspectRatio(16f/9f))
-            Text("Тестовый MP4-поток. Это демонстрационное видео, а не сам фильм из названия карточки. Для публикации используйте видео, на которое у MOVNET есть права.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(18.dp))
+            Box(modifier = if (fullScreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth()) {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            this.player = player
+                            useController = true
+                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        }
+                    },
+                    modifier = if (fullScreen) Modifier.fillMaxSize()
+                    else Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                )
+                Text(
+                    "⛶", color = Color.White, fontSize = 26.sp,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(14.dp)
+                        .background(Color(0x99000000), RoundedCornerShape(8.dp))
+                        .clickable { fullScreen = !fullScreen }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+            if (!fullScreen) {
+                Text(
+                    "Тестовый MP4-поток. Это демонстрационное видео, а не сам фильм из названия карточки. Для публикации используйте видео, на которое у MOVNET есть права.",
+                    color = Muted, fontSize = 12.sp, modifier = Modifier.padding(18.dp)
+                )
+            }
         } else {
-            Box(Modifier.fillMaxWidth().aspectRatio(16f/9f).background(SurfaceDark), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(SurfaceDark),
+                contentAlignment = Alignment.Center) {
                 Text("Видео пока не добавлено", color = Muted)
             }
-            Text("Для этой карточки пока нет HTTPS-ссылки на видео. Добавьте stream_url в каталоге на сервере.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(18.dp))
+            Text("Для этой карточки пока нет HTTPS-ссылки на видео. Добавьте stream_url в каталоге на сервере.",
+                color = Muted, fontSize = 13.sp, modifier = Modifier.padding(18.dp))
         }
-        Text("Для бесплатного тарифа рекламные места пока представлены макетом. Рекламная сеть не подключена.", color = Color(0xFFFFC857), fontSize = 12.sp, modifier = Modifier.padding(horizontal = 18.dp))
+
+        if (!fullScreen) {
+            Text("Для бесплатного тарифа рекламные места пока представлены макетом.",
+                color = Color(0xFFFFC857), fontSize = 12.sp,
+                modifier = Modifier.padding(horizontal = 18.dp))
+        }
     }
 }
 
