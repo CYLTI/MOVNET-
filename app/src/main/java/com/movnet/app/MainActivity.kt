@@ -140,6 +140,8 @@ fun MovnetApp() {
                     email = accountEmail, displayName = accountName, createdAt = accountCreatedAt,
                     plan = accountPlan, loggedIn = loggedIn,
                     onEmail = { accountEmail = it }, onDisplayName = { accountName = it },
+                    onRequestPasswordReset = { email -> MovnetApi.requestPasswordReset(email) },
+                    onResetPassword = { email, code, newPassword -> MovnetApi.confirmPasswordReset(email, code, newPassword) },
                     onSubmit = { name, email, password, register ->
                         val token = MovnetApi.authenticate(email, password, register, name)
                         preferences.edit().putString("access_token", token).apply()
@@ -768,6 +770,8 @@ fun AccountScreen(
     email: String, displayName: String, createdAt: String, plan: String, loggedIn: Boolean,
     onEmail: (String) -> Unit, onDisplayName: (String) -> Unit,
     onSubmit: suspend (String, String, String, Boolean) -> Unit,
+    onRequestPasswordReset: suspend (String) -> Unit,
+    onResetPassword: suspend (String, String, String) -> Unit,
     onSaveProfile: suspend (String) -> Unit,
     onLogout: () -> Unit, onBack: () -> Unit
 ) {
@@ -777,6 +781,12 @@ fun AccountScreen(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var saved by remember { mutableStateOf(false) }
+    var showResetDialog by remember { mutableStateOf(false) }
+    var resetCodeSent by remember { mutableStateOf(false) }
+    var resetCode by remember { mutableStateOf("") }
+    var resetNewPassword by remember { mutableStateOf("") }
+    var resetBusy by remember { mutableStateOf(false) }
+    var resetMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val initials = displayName.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
         .take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("")
@@ -890,8 +900,56 @@ fun AccountScreen(
                 Text(if (register) "Уже есть аккаунт? Войти" else "Впервые в MOVNET? Создать аккаунт",
                     color = Color(0xFFFFA6B8))
             }
+            if (!register) {
+                TextButton(onClick = {
+                    showResetDialog = true; resetCodeSent = false
+                    resetCode = ""; resetNewPassword = ""; resetMessage = null
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Забыли пароль?", color = Color(0xFFFFC857))
+                }
+            }
             Text("Пароль хранится на сервере только в виде защищённого хеша.",
                 color = Muted, fontSize = 11.sp)
+        }
+        if (showResetDialog) {
+            AlertDialog(
+                onDismissRequest = { if (!resetBusy) showResetDialog = false },
+                title = { Text("Восстановление пароля") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Укажи почту аккаунта. Мы отправим одноразовый код, действующий 10 минут.")
+                        OutlinedTextField(value = email, onValueChange = onEmail, label = { Text("Электронная почта") }, singleLine = true)
+                        if (resetCodeSent) {
+                            OutlinedTextField(value = resetCode, onValueChange = { resetCode = it.filter(Char::isDigit).take(6) }, label = { Text("Код из письма") }, singleLine = true)
+                            OutlinedTextField(value = resetNewPassword, onValueChange = { resetNewPassword = it }, label = { Text("Новый пароль (от 8 символов)") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                        }
+                        resetMessage?.let { Text(it, color = if (it.contains("успешно", true) || it.contains("отправлен", true)) Color(0xFF65D6A2) else Color(0xFFFF7A8A), fontSize = 12.sp) }
+                    }
+                },
+                confirmButton = {
+                    TextButton(enabled = !resetBusy && (if (resetCodeSent) resetCode.length == 6 && resetNewPassword.length >= 8 else email.contains("@")),
+                        onClick = {
+                            scope.launch {
+                                resetBusy = true; resetMessage = null
+                                try {
+                                    if (!resetCodeSent) {
+                                        onRequestPasswordReset(email)
+                                        resetCodeSent = true
+                                        resetMessage = "Если аккаунт существует, код отправлен на почту."
+                                    } else {
+                                        onResetPassword(email, resetCode, resetNewPassword)
+                                        resetMessage = "Пароль успешно изменён. Теперь войди с новым паролем."
+                                        resetCodeSent = false
+                                        password = resetNewPassword
+                                        showResetDialog = false
+                                    }
+                                } catch (e: Exception) { resetMessage = e.message ?: "Не удалось выполнить запрос." }
+                                finally { resetBusy = false }
+                            }
+                        }) { Text(if (resetBusy) "Подожди…" else if (resetCodeSent) "Сменить пароль" else "Отправить код") }
+                },
+                dismissButton = { TextButton(onClick = { if (!resetBusy) showResetDialog = false }) { Text("Закрыть") } }
+            )
         }
     }
 }
