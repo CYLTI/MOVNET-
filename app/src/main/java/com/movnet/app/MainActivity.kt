@@ -205,7 +205,8 @@ fun CatalogScreen(
         matchesTab && matchesQuery && matchesType && matchesGenre && matchesPremium
     }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 26.dp)) {
+    Column(Modifier.fillMaxSize()) {
+      LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 18.dp)) {
         item {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
@@ -318,17 +319,37 @@ fun CatalogScreen(
         } else {
             items(filtered) { item -> MovieRow(movie = item, isFavorite = favoriteTitles.contains(item.title), onClick = { onMovie(item) }, onFavorite = { onFavoriteToggle(item.title) }) }
         }
-        item {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 20.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                listOf("Главная", "Каталог", "Избранное", "Профиль").forEach { tab ->
-                    Text(tab, color = if (selectedTab == tab) Color.White else Muted,
-                        fontSize = 12.sp, modifier = Modifier.clickable { onTab(tab); if (tab == "Профиль") onAccount() }.padding(5.dp))
-                }
-            }
-            Text(if (selectedTab == "Избранное") "Избранное хранится только в памяти до закрытия приложения." else "Демонстрационный каталог: карточки и данные пока локальные.",
-                color = Color(0xFF687181), fontSize = 10.sp,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp))
-        }
+      }
+      NavigationBar(
+          containerColor = SurfaceDark,
+          contentColor = Color.White
+      ) {
+          listOf("Главная", "Каталог", "Избранное", "Профиль").forEach { tab ->
+              NavigationBarItem(
+                  selected = selectedTab == tab,
+                  onClick = { onTab(tab); if (tab == "Профиль") onAccount() },
+                  icon = {
+                      Text(
+                          when (tab) {
+                              "Главная" -> "⌂"
+                              "Каталог" -> "▦"
+                              "Избранное" -> "♡"
+                              else -> "●"
+                          },
+                          fontSize = 20.sp
+                      )
+                  },
+                  label = { Text(tab, fontSize = 10.sp) },
+                  colors = NavigationBarItemDefaults.colors(
+                      selectedIconColor = Color.White,
+                      selectedTextColor = Color.White,
+                      indicatorColor = Accent,
+                      unselectedIconColor = Muted,
+                      unselectedTextColor = Muted
+                  )
+              )
+          }
+      }
     }
 }
 
