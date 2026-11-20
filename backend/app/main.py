@@ -157,7 +157,7 @@ with SessionLocal() as seed_db:
     placeholder_titles = [
         "Последний рубеж", "Тёмный город", "Ледяная планета", "Ночная смена",
         "Город на краю", "Код будущего", "Космические друзья",
-        "Лесные истории", "Мега-команда", "Тайны океана", "Elephants Dream",
+        "Лесные истории", "Мега-команда", "Тайны океана", "Elephants Dream", "Spring",
     ]
     for title in placeholder_titles:
         item = seed_db.scalar(select(CatalogItem).where(CatalogItem.title == title))
@@ -353,7 +353,7 @@ def _send_password_reset_email(recipient: str, code: str) -> None:
     message["From"] = settings.smtp_from_email
     message["To"] = recipient
     message.set_content(
-        f"Код для смены пароля MOVNET: {code}\\n\\n"
+        f"Код для смены пароля MOVNET: {code}\n\n"
         "Код действует 10 минут. Если вы не запрашивали смену пароля, просто проигнорируйте письмо."
     )
     try:
