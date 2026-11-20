@@ -122,7 +122,7 @@ with SessionLocal() as seed_db:
 # Big Buck Bunny is a Blender Foundation open movie under CC BY 3.0.
 # This is a remote HTTPS test stream, not a file uploaded to MOVNET storage.
 DEMO_TITLE = "Big Buck Bunny"
-DEMO_STREAM_URL = "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+DEMO_STREAM_URL = "https://flutter.github.io/assets-for-api-docs/assets/videos/bee.mp4"
 DEMO_DESCRIPTION = (
     "Открытый короткометражный мультфильм Blender Foundation. "
     "Добавлен в MOVNET только для проверки видеоплеера; это не фильм из коммерческого каталога. "
