@@ -791,7 +791,7 @@ fun AccountScreen(
             )
             OutlinedTextField(
                 value = password, onValueChange = { password = it },
-                label = { Text("Пароль (минимум 10 символов)") }, singleLine = true,
+                label = { Text("Пароль (минимум 8 символов)") }, singleLine = true,
                 visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()
             )
             if (register) {
@@ -812,7 +812,7 @@ fun AccountScreen(
                     }
                 },
                 enabled = !busy && email.contains("@") &&
-                    password.length >= if (register) 10 else 1 &&
+                    password.length >= if (register) 8 else 1 &&
                     (!register || (displayName.trim().length >= 2 && password == confirmPassword)),
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = Accent)
