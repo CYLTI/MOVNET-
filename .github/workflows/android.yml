@@ -11,6 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -21,14 +22,8 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9
-                - name: Align JVM targets
-        run: |
-          sed -i '/^android {/a\
-              compileOptions {\
-                  sourceCompatibility = JavaVersion.VERSION_17\
-                  targetCompatibility = JavaVersion.VERSION_17\
-              }' app/build.gradle.kts
+          gradle-version: '8.9'
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -41,6 +36,14 @@ jobs:
         run: |
           unzip -q MOVNET_All_Stages_Prototype.zip -d extracted
           cp -a extracted/MOVNET/. .
+
+      - name: Align JVM targets
+        run: |
+          sed -i '/^android {/a\
+              compileOptions {\
+                  sourceCompatibility = JavaVersion.VERSION_17\
+                  targetCompatibility = JavaVersion.VERSION_17\
+              }' app/build.gradle.kts
 
       - name: Build APK
         run: gradle assembleDebug
