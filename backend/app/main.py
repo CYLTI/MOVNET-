@@ -118,18 +118,43 @@ with SessionLocal() as seed_db:
             seed_db.add(CatalogItem(title=row[0], genre=row[1], year=row[2], premium=row[3], emoji=row[4], description=row[5], content_type=row[6], meta=row[7], stream_url=None))
         seed_db.commit()
 
-# Demo MP4 URLs for exercising the Android player. These are public sample clips,
-# not licensed feature films; replace them with MOVNET-owned/licensed streams.
-DEMO_MP4_STREAMS = {
-    "Последний рубеж": "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-    "Тёмный город": "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-    "Ледяная планета": "https://storage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-}
+# One clearly-labelled, openly licensed sample title for player testing.
+# Big Buck Bunny is a Blender Foundation open movie under CC BY 3.0.
+# This is a remote HTTPS test stream, not a file uploaded to MOVNET storage.
+DEMO_TITLE = "Big Buck Bunny"
+DEMO_STREAM_URL = "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+DEMO_DESCRIPTION = (
+    "Открытый короткометражный мультфильм Blender Foundation. "
+    "Добавлен в MOVNET только для проверки видеоплеера; это не фильм из коммерческого каталога. "
+    "Лицензия CC BY 3.0: https://creativecommons.org/licenses/by/3.0/ "
+    "Авторство: Blender Foundation / www.bigbuckbunny.org"
+)
 with SessionLocal() as seed_db:
-    for title, stream_url in DEMO_MP4_STREAMS.items():
+    # Do not attach unrelated demo clips to fictional catalogue titles.
+    for title in ("Последний рубеж", "Тёмный город", "Ледяная планета"):
         item = seed_db.scalar(select(CatalogItem).where(CatalogItem.title == title))
-        if item is not None and not item.stream_url:
-            item.stream_url = stream_url
+        if item is not None and item.stream_url and item.stream_url.startswith("https://storage.googleapis.com/gtv-videos-bucket/sample/"):
+            item.stream_url = None
+
+    demo_item = seed_db.scalar(select(CatalogItem).where(CatalogItem.title == DEMO_TITLE))
+    if demo_item is None:
+        demo_item = CatalogItem(
+            title=DEMO_TITLE,
+            genre="Мультфильм",
+            year="2008",
+            premium=False,
+            emoji="🐰",
+            description=DEMO_DESCRIPTION,
+            content_type="Тестовые видео",
+            meta="Короткометражный фильм • Blender Foundation",
+            stream_url=DEMO_STREAM_URL,
+            published=True,
+        )
+        seed_db.add(demo_item)
+    elif not demo_item.stream_url:
+        demo_item.stream_url = DEMO_STREAM_URL
+        demo_item.description = DEMO_DESCRIPTION
+        demo_item.published = True
     seed_db.commit()
 
 app = FastAPI(title="MOVNET API", version="0.9.0", description="MOVNET account, entitlement and catalogue API")
