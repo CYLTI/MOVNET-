@@ -34,7 +34,7 @@ jobs:
 
       - name: Extract project
         run: |
-          unzip -q MOVNET_0.7.0_auth_server_catalog.zip -d extracted
+          unzip -q MOVNET_0.8.0_MP4_test.zip -d extracted
 
           PROJECT_DIR="$(find extracted -type f -path '*/app/build.gradle.kts' -print -quit | sed 's|/app/build.gradle.kts$||')"
 
