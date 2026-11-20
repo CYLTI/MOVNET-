@@ -207,150 +207,134 @@ fun CatalogScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-      LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 18.dp)) {
-        item {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(38.dp).background(Accent, RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
-                        Text("M", fontSize = 25.sp, fontWeight = FontWeight.Black)
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Text("MOVNET", fontSize = 25.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+        // Навигация по каталогу закреплена сверху и не уезжает при прокрутке фильмов.
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(34.dp).background(Accent, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                    Text("M", fontSize = 23.sp, fontWeight = FontWeight.Black)
                 }
-                Text("КАТАЛОГ", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(9.dp))
+                Text("MOVNET", fontSize = 23.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
             }
+            Text("КАТАЛОГ", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
-        item {
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = 18.dp)
-                    .background(Brush.linearGradient(listOf(Color(0xFF541329), Color(0xFF171B25))), RoundedCornerShape(22.dp))
-                    .padding(20.dp)
-            ) {
-                Text("ТВОЙ КИНОМИР", color = Color(0xFFFFA6B8), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(7.dp))
-                Text("Истории на любой вкус", fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
-                Spacer(Modifier.height(6.dp))
-                Text("Фильмы, сериалы и анимация в одном месте.", color = Color(0xFFD5D8DF), fontSize = 13.sp)
-                Spacer(Modifier.height(14.dp))
-                Button(onClick = onPremium, colors = ButtonDefaults.buttonColors(containerColor = Accent)) {
-                    Text("Смотреть Premium")
-                }
-            }
-        }
-        item {
-            OutlinedTextField(
-                value = query, onValueChange = onQuery,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 15.dp),
-                placeholder = { Text("Поиск по названию, жанру…", color = Muted) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Поиск") },
-                singleLine = true, shape = RoundedCornerShape(15.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Accent, unfocusedBorderColor = Color(0xFF303746),
-                    focusedTextColor = Color.White, unfocusedTextColor = Color.White
-                )
+
+        OutlinedTextField(
+            value = query, onValueChange = onQuery,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            placeholder = { Text("Поиск по названию, жанру…", color = Muted) },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Поиск") },
+            singleLine = true, shape = RoundedCornerShape(15.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Accent, unfocusedBorderColor = Color(0xFF303746),
+                focusedTextColor = Color.White, unfocusedTextColor = Color.White
             )
+        )
+
+        Text("Категории", Modifier.padding(start = 18.dp, top = 7.dp, bottom = 5.dp), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+            contentTypes.forEach { type ->
+                FilterChip(
+                    selected = selectedType == type, onClick = { onType(type) },
+                    label = { Text(type) }, modifier = Modifier.padding(end = 6.dp),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Accent, selectedLabelColor = Color.White,
+                        containerColor = SurfaceDark, labelColor = Color.White
+                    )
+                )
+            }
         }
-        item {
-            Text("Категории", Modifier.padding(start = 20.dp, bottom = 10.dp), fontSize = 19.sp, fontWeight = FontWeight.Bold)
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
-                contentTypes.forEach { type ->
-                    FilterChip(
-                        selected = selectedType == type, onClick = { onType(type) },
-                        label = { Text(type) }, modifier = Modifier.padding(end = 7.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Accent, selectedLabelColor = Color.White,
-                            containerColor = SurfaceDark, labelColor = Color.White
-                        )
+
+        Text("Жанры", Modifier.padding(start = 18.dp, top = 5.dp, bottom = 5.dp), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+            genres.forEach { genre ->
+                AssistChip(
+                    onClick = { onGenre(genre) }, label = { Text(genre) },
+                    modifier = Modifier.padding(end = 6.dp),
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = if (selectedGenre == genre) Color(0xFF512033) else SurfaceDark,
+                        labelColor = Color.White
+                    )
+                )
+            }
+        }
+
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)) {
+            listOf("Все", "Бесплатные", "Premium").forEach { filter ->
+                FilterChip(
+                    selected = premiumFilter == filter, onClick = { onPremiumFilter(filter) },
+                    label = { Text(filter) }, modifier = Modifier.padding(end = 6.dp),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Accent, selectedLabelColor = Color.White,
+                        containerColor = SurfaceDark, labelColor = Color.White
+                    )
+                )
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(if (selectedTab == "Избранное") "Избранное" else "Каталог MOVNET", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("${filtered.size} найдено", color = Muted, fontSize = 11.sp)
+        }
+
+        // Прокручивается только список карточек; фильтры и нижняя навигация остаются на месте.
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 12.dp)) {
+            if (catalogLoading) {
+                item { CircularProgressIndicator(color = Accent, modifier = Modifier.padding(24.dp)) }
+            } else if (catalogError != null) {
+                item { Text("Каталог сервера недоступен: $catalogError", color = Color(0xFFFFC857), modifier = Modifier.padding(20.dp)) }
+            } else if (filtered.isEmpty()) {
+                item {
+                    Text("Ничего не найдено. Попробуй изменить поиск или фильтры.",
+                        color = Muted, modifier = Modifier.fillMaxWidth().padding(24.dp))
+                }
+            } else {
+                items(filtered) { item ->
+                    MovieRow(
+                        movie = item,
+                        isFavorite = favoriteTitles.contains(item.title),
+                        onClick = { onMovie(item) },
+                        onFavorite = { onFavoriteToggle(item.title) }
                     )
                 }
             }
-            Spacer(Modifier.height(17.dp))
         }
-        item {
-            Text("Жанры", Modifier.padding(start = 20.dp, bottom = 10.dp), fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
-                genres.forEach { genre ->
-                    AssistChip(
-                        onClick = { onGenre(genre) }, label = { Text(genre) },
-                        modifier = Modifier.padding(end = 7.dp),
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = if (selectedGenre == genre) Color(0xFF512033) else SurfaceDark,
-                            labelColor = Color.White
+
+        NavigationBar(containerColor = SurfaceDark, contentColor = Color.White) {
+            listOf("Главная", "Каталог", "Избранное", "Профиль").forEach { tab ->
+                NavigationBarItem(
+                    selected = selectedTab == tab,
+                    onClick = { onTab(tab); if (tab == "Профиль") onAccount() },
+                    icon = {
+                        Text(
+                            when (tab) {
+                                "Главная" -> "⌂"
+                                "Каталог" -> "▦"
+                                "Избранное" -> "♡"
+                                else -> "●"
+                            },
+                            fontSize = 20.sp
                         )
+                    },
+                    label = { Text(tab, fontSize = 10.sp) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color.White,
+                        selectedTextColor = Color.White,
+                        indicatorColor = Accent,
+                        unselectedIconColor = Muted,
+                        unselectedTextColor = Muted
                     )
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-        }
-        item {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("Каталог MOVNET", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                Text("${filtered.size} найдено", color = Muted, fontSize = 11.sp)
-            }
-            Row(Modifier.padding(horizontal = 18.dp, vertical = 9.dp)) {
-                listOf("Все", "Бесплатные", "Premium").forEach { filter ->
-                    FilterChip(
-                        selected = premiumFilter == filter, onClick = { onPremiumFilter(filter) },
-                        label = { Text(filter) }, modifier = Modifier.padding(end = 7.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Accent, selectedLabelColor = Color.White,
-                            containerColor = SurfaceDark, labelColor = Color.White
-                        )
-                    )
-                }
+                )
             }
         }
-        if (catalogLoading) {
-            item { CircularProgressIndicator(color = Accent, modifier = Modifier.padding(24.dp)) }
-        } else if (catalogError != null) {
-            item { Text("Каталог сервера недоступен: $catalogError", color = Color(0xFFFFC857), modifier = Modifier.padding(20.dp)) }
-        } else if (filtered.isEmpty()) {
-            item {
-                Text("Ничего не найдено. Попробуй изменить поиск или фильтры.",
-                    color = Muted, modifier = Modifier.fillMaxWidth().padding(24.dp))
-            }
-        } else {
-            items(filtered) { item -> MovieRow(movie = item, isFavorite = favoriteTitles.contains(item.title), onClick = { onMovie(item) }, onFavorite = { onFavoriteToggle(item.title) }) }
-        }
-      }
-      NavigationBar(
-          containerColor = SurfaceDark,
-          contentColor = Color.White
-      ) {
-          listOf("Главная", "Каталог", "Избранное", "Профиль").forEach { tab ->
-              NavigationBarItem(
-                  selected = selectedTab == tab,
-                  onClick = { onTab(tab); if (tab == "Профиль") onAccount() },
-                  icon = {
-                      Text(
-                          when (tab) {
-                              "Главная" -> "⌂"
-                              "Каталог" -> "▦"
-                              "Избранное" -> "♡"
-                              else -> "●"
-                          },
-                          fontSize = 20.sp
-                      )
-                  },
-                  label = { Text(tab, fontSize = 10.sp) },
-                  colors = NavigationBarItemDefaults.colors(
-                      selectedIconColor = Color.White,
-                      selectedTextColor = Color.White,
-                      indicatorColor = Accent,
-                      unselectedIconColor = Muted,
-                      unselectedTextColor = Muted
-                  )
-              )
-          }
-      }
     }
 }
 
