@@ -59,6 +59,8 @@ object MovnetApi {
 
     suspend fun loadProfile(token: String): JSONObject = JSONObject(request("/me", token = token))
 
+    suspend fun loadEntitlements(token: String): JSONObject = JSONObject(request("/entitlements", token = token))
+
     suspend fun updateProfile(token: String, displayName: String): JSONObject {
         val body = JSONObject().put("display_name", displayName.trim())
         return JSONObject(request("/me", "PUT", body, token))
