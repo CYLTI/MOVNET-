@@ -10,7 +10,11 @@ import android.widget.Toast
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalContext
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.activity.ComponentActivity
@@ -63,10 +67,10 @@ data class Movie(
 
 // Offline-safe catalogue: openly licensed Blender Foundation films.
 private val openLicensedFallback = listOf(
-    Movie("Big Buck Bunny", "Комедия", "2008", false, "🐰", "Открытый мультфильм Blender Foundation. Лицензия CC BY 3.0.", "Фильмы", "9 мин 56 сек • CC BY 3.0", "https://video.blender.org/static/webseed/bf1f3fb5-b119-4f9f-9930-8e20e892b898-720.mp4"),
-    Movie("Sintel", "Фэнтези", "2010", false, "🐉", "Фэнтези-фильм Blender Foundation. Лицензия CC BY 3.0.", "Фильмы", "14 мин 48 сек • CC BY 3.0", "https://video.blender.org/static/webseed/0eb052d0-fd51-43e6-aa33-ecdbf77a5d40-720.mp4"),
-    Movie("Tears of Steel", "Фантастика", "2012", false, "🤖", "Научно-фантастический фильм Blender Institute. Лицензия CC BY 3.0.", "Фильмы", "12 мин 14 сек • CC BY 3.0", "https://video.blender.org/static/webseed/8533ea43-4271-4a57-9694-e9d0b35e1aa1-720.mp4"),
-    Movie("Spring", "Фэнтези", "2019", false, "🌱", "Короткометражный фильм Blender Foundation. Лицензия CC BY 4.0.", "Фильмы", "7 мин 44 сек • CC BY 4.0", "https://video.blender.org/static/webseed/3d95fb3d-c866-42c8-9db1-fe82f48ccb95-720.mp4")
+    Movie("Big Buck Bunny", "Комедия", "2008", false, "🐰", "Открытый мультфильм Blender Foundation. Лицензия CC BY 3.0.", "Фильмы", "9 мин 56 сек • CC BY 3.0", "https://archive.org/download/BigBuckBunny_328/BigBuckBunny_512kb.mp4"),
+    Movie("Sintel", "Фэнтези", "2010", false, "🐉", "Фэнтези-фильм Blender Foundation. Лицензия CC BY 3.0.", "Фильмы", "14 мин 48 сек • CC BY 3.0", "https://archive.org/download/Sintel/sintel-2048-stereo_512kb.mp4"),
+    Movie("Tears of Steel", "Фантастика", "2012", false, "🤖", "Научно-фантастический фильм Blender Institute. Лицензия CC BY 3.0.", "Фильмы", "12 мин 14 сек • CC BY 3.0", "https://archive.org/download/Tears-of-Steel/tears_of_steel_720p.mp4"),
+    Movie("Elephants Dream", "Фантастика", "2006", false, "🐘", "Открытый фильм Blender Foundation. Лицензия Creative Commons Attribution.", "Фильмы", "10 мин • CC BY", "https://archive.org/download/ElephantsDream_277/elephant_dreams_640_512kb.mp4")
 )
 
 class MainActivity : ComponentActivity() {
@@ -589,16 +593,55 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
     }
     var fullScreen by remember { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
-    val player = remember { ExoPlayer.Builder(context).build() }
+    var playbackError by remember(movie.title) { mutableStateOf<String?>(null) }
+    var isBuffering by remember(movie.title) { mutableStateOf(true) }
+    val httpFactory = remember(context) {
+        DefaultHttpDataSource.Factory()
+            .setUserAgent("MOVNET Android Video Player")
+            .setConnectTimeoutMs(20000)
+            .setReadTimeoutMs(30000)
+            .setAllowCrossProtocolRedirects(true)
+    }
+    val player = remember(context) {
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
+            .build()
+    }
+
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                isBuffering = playbackState == Player.STATE_BUFFERING || playbackState == Player.STATE_IDLE
+                if (playbackState == Player.STATE_READY) playbackError = null
+            }
+            override fun onPlayerError(error: PlaybackException) {
+                isBuffering = false
+                playbackError = when (error.errorCode) {
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Нет соединения или видеосервер не отвечает. Проверь интернет и нажми «Повторить»."
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "Сервер прислал неподдерживаемый видеофайл."
+                    else -> "Не удалось запустить видео (${error.errorCodeName}). Проверь подключение и попробуй снова."
+                }
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
 
     LaunchedEffect(movie.streamUrl) {
         val url = movie.streamUrl?.takeIf { it.startsWith("https://") }
+        playbackError = null
+        isBuffering = true
         player.stop()
         player.clearMediaItems()
         if (url != null) {
             player.setMediaItem(MediaItem.fromUri(url))
             player.prepare()
             player.playWhenReady = true
+        } else {
+            isBuffering = false
+            playbackError = "Для этого фильма пока не настроен видеопоток."
         }
     }
 
@@ -668,6 +711,23 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
                     modifier = if (fullScreen) Modifier.fillMaxSize()
                     else Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                 )
+                if (isBuffering && playbackError == null) {
+                    CircularProgressIndicator(color = Accent, modifier = Modifier.align(Alignment.Center))
+                }
+                playbackError?.let { message ->
+                    Column(
+                        Modifier.align(Alignment.Center).fillMaxWidth().padding(22.dp)
+                            .background(Color(0xDD171B25), RoundedCornerShape(14.dp)).padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(message, color = Color.White, fontSize = 13.sp)
+                        Spacer(Modifier.height(10.dp))
+                        Button(onClick = {
+                            playbackError = null; isBuffering = true
+                            player.seekTo(0); player.prepare(); player.playWhenReady = true
+                        }, colors = ButtonDefaults.buttonColors(containerColor = Accent)) { Text("Повторить") }
+                    }
+                }
                 // The fullscreen toggle follows the native player controls:
                 // it disappears with them and returns when the viewer taps the video.
                 if (controlsVisible) {
