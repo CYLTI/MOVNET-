@@ -30,14 +30,20 @@ object MovnetApi {
             val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code !in 200..299) {
                 val message = runCatching { JSONObject(response).optString("detail") }.getOrNull()
-                throw IllegalStateException(message?.takeIf { it.isNotBlank() } ?: "Ошибка сервера ($code)")
+                val detail = message?.takeIf { it.isNotBlank() }
+                val friendly = when {
+                    code == 401 && path == "/auth/login" -> "Неверный e-mail или пароль. Проверь раскладку и попробуй ещё раз."
+                    code == 409 && path == "/auth/register" -> "Этот e-mail уже зарегистрирован. Переключись на «Войти»."
+                    else -> detail ?: "Ошибка сервера ($code)"
+                }
+                throw IllegalStateException(friendly)
             }
             response
         } finally { connection.disconnect() }
     }
 
      suspend fun authenticate(email: String, password: String, register: Boolean, displayName: String = ""): String {
-        val json = JSONObject().put("email", email.trim()).put("password", password)
+        val json = JSONObject().put("email", email.trim().lowercase()).put("password", password)
         if (register) json.put("display_name", displayName.trim())
         val result = JSONObject(request(if (register) "/auth/register" else "/auth/login", "POST", json))
         return result.getString("access_token")
