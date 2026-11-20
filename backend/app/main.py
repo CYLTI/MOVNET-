@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_from_email: str = ""
+    account_recovery_key: str = ""
+    account_recovery_email: str = ""
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
@@ -104,6 +106,13 @@ class PasswordResetCode(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     used: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class AccountRecoveryUse(Base):
+    __tablename__ = "account_recovery_uses"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class RedeemCode(Base):
@@ -414,6 +423,28 @@ def confirm_password_reset(body: PasswordResetConfirm, db: Session = Depends(db_
     ).update({"used": True})
     db.commit()
     return {"message": "Пароль успешно изменён. Теперь войдите с новым паролем."}
+
+
+@app.post("/admin/account/recover")
+def recover_account(body: AccountRecoveryRequest, x_recovery_key: str | None = Header(default=None), db: Session = Depends(db_session)):
+    """One-time, email-restricted emergency recovery. Remove ACCOUNT_RECOVERY_KEY after use."""
+    configured_key = settings.account_recovery_key
+    allowed_email = settings.account_recovery_email.strip().lower()
+    if (not configured_key or not allowed_email or not x_recovery_key
+            or not secrets.compare_digest(x_recovery_key, configured_key)
+            or body.email.lower() != allowed_email):
+        raise HTTPException(status_code=403, detail="Recovery access denied")
+    key_hash = hashlib.sha256(configured_key.encode("utf-8")).hexdigest()
+    if db.scalar(select(AccountRecoveryUse).where(AccountRecoveryUse.key_hash == key_hash)):
+        raise HTTPException(status_code=410, detail="Recovery key has already been used")
+    user = db.scalar(select(User).where(User.email == allowed_email))
+    if user is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+    user.password_hash = password_hash.hash(body.new_password)
+    db.add(AccountRecoveryUse(key_hash=key_hash))
+    db.query(PasswordResetCode).filter(PasswordResetCode.user_id == user.id).update({"used": True})
+    db.commit()
+    return {"message": "Password updated. Sign in with the new password."}
 
 
 @app.get("/me")
