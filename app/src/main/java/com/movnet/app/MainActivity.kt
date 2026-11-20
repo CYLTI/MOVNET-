@@ -688,7 +688,7 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
             }
             if (!fullScreen) {
                 Text(
-                    "Тестовый MP4-поток. Это демонстрационное видео, а не сам фильм из названия карточки. Для публикации используйте видео, на которое у MOVNET есть права.",
+                    "Открытый фильм с лицензией Creative Commons. Сведения об авторе и лицензии указаны в описании фильма.",
                     color = Muted, fontSize = 12.sp, modifier = Modifier.padding(18.dp)
                 )
             }
@@ -697,7 +697,7 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
                 contentAlignment = Alignment.Center) {
                 Text("Видео пока не добавлено", color = Muted)
             }
-            Text("Для этой карточки пока нет HTTPS-ссылки на видео. Добавьте stream_url в каталоге на сервере.",
+            Text("Для этого фильма пока не подключён видеопоток. Попробуйте позже.",
                 color = Muted, fontSize = 13.sp, modifier = Modifier.padding(18.dp))
         }
 
