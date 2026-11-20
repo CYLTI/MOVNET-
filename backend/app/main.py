@@ -140,7 +140,7 @@ with SessionLocal() as seed_db:
     placeholder_titles = [
         "Последний рубеж", "Тёмный город", "Ледяная планета", "Ночная смена",
         "Город на краю", "Код будущего", "Космические друзья",
-        "Лесные истории", "Мега-команда", "Тайны океана",
+        "Лесные истории", "Мега-команда", "Тайны океана", "Elephants Dream",
     ]
     for title in placeholder_titles:
         item = seed_db.scalar(select(CatalogItem).where(CatalogItem.title == title))
