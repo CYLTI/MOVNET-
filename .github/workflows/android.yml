@@ -54,7 +54,7 @@ jobs:
           gradle-version: "8.9"
 
       - name: Build debug APK
-        run: gradle --no-daemon -PMOVNET_API_BASE_URL="${{ vars.MOVNET_API_BASE_URL || 'https://movnet-75g3.onrender.com' }}" assembleDebug
+        run: gradle --no-daemon -PMOVNET_API_BASE_URL="${{ vars.MOVNET_API_BASE_URL || 'https://movnet-api.onrender.com' }}" assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
