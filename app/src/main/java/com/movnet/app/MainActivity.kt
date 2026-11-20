@@ -812,7 +812,7 @@ fun AccountScreen(
                     }
                 },
                 enabled = !busy && email.contains("@") &&
-                    password.length >= if (register) 8 else 1 &&
+                    password.length >= (if (register) 8 else 1) &&
                     (!register || (displayName.trim().length >= 2 && password == confirmPassword)),
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = Accent)
