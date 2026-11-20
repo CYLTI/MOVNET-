@@ -89,6 +89,9 @@ fun MovnetApp() {
     var playingMovie by remember { mutableStateOf<Movie?>(null) }
     var showAccount by remember { mutableStateOf(false) }
     var accountEmail by remember { mutableStateOf("") }
+    var accountName by remember { mutableStateOf("") }
+    var accountCreatedAt by remember { mutableStateOf("") }
+    var accountPlan by remember { mutableStateOf("Free") }
     var authToken by remember { mutableStateOf(preferences.getString("access_token", null)) }
     var loggedIn by remember { mutableStateOf(authToken != null) }
     var catalogItems by remember { mutableStateOf<List<Movie>>(emptyList()) }
@@ -103,7 +106,14 @@ fun MovnetApp() {
     LaunchedEffect(authToken) {
         val token = authToken
         if (token != null) {
-            try { accountEmail = MovnetApi.loadProfile(token).optString("email") }
+            try {
+                val profile = MovnetApi.loadProfile(token)
+                accountEmail = profile.optString("email")
+                accountName = profile.optString("display_name")
+                accountCreatedAt = profile.optString("created_at")
+                val entitlement = MovnetApi.loadEntitlements(token)
+                accountPlan = if (entitlement.optBoolean("active")) entitlement.optString("plan", "Premium") else "Free"
+            }
             catch (_: Exception) { preferences.edit().remove("access_token").apply(); authToken = null; loggedIn = false }
         }
     }
@@ -128,14 +138,23 @@ fun MovnetApp() {
             when {
                 playingMovie != null -> PlayerScreen(movie = playingMovie!!, onBack = { playingMovie = null })
                 showAccount -> AccountScreen(
-                    email = accountEmail, loggedIn = loggedIn,
-                    onEmail = { accountEmail = it },
-                    onSubmit = { email, password, register ->
-                        val token = MovnetApi.authenticate(email, password, register)
+                    email = accountEmail, displayName = accountName, createdAt = accountCreatedAt,
+                    plan = accountPlan, loggedIn = loggedIn,
+                    onEmail = { accountEmail = it }, onDisplayName = { accountName = it },
+                    onSubmit = { name, email, password, register ->
+                        val token = MovnetApi.authenticate(email, password, register, name)
                         preferences.edit().putString("access_token", token).apply()
-                        authToken = token; loggedIn = true; accountEmail = email.trim()
+                        authToken = token; loggedIn = true; accountEmail = email.trim(); accountName = name.trim()
                     },
-                    onLogout = { preferences.edit().remove("access_token").apply(); authToken = null; loggedIn = false; accountEmail = "" },
+                    onSaveProfile = { name ->
+                        val token = authToken ?: error("Сначала войдите в аккаунт")
+                        val profile = MovnetApi.updateProfile(token, name)
+                        accountName = profile.optString("display_name", name)
+                    },
+                    onLogout = {
+                        preferences.edit().remove("access_token").apply()
+                        authToken = null; loggedIn = false; accountEmail = ""; accountName = ""; accountCreatedAt = ""; accountPlan = "Free"
+                    },
                     onBack = { showAccount = false }
                 )
                 showPremium -> PremiumScreen(onBack = { showPremium = false })
@@ -679,42 +698,133 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
 }
 @Composable
 fun AccountScreen(
-    email: String, loggedIn: Boolean, onEmail: (String) -> Unit,
-    onSubmit: suspend (String, String, Boolean) -> Unit,
+    email: String, displayName: String, createdAt: String, plan: String, loggedIn: Boolean,
+    onEmail: (String) -> Unit, onDisplayName: (String) -> Unit,
+    onSubmit: suspend (String, String, String, Boolean) -> Unit,
+    onSaveProfile: suspend (String) -> Unit,
     onLogout: () -> Unit, onBack: () -> Unit
 ) {
     var password by remember { mutableStateOf("") }
-    var register by remember { mutableStateOf(false) }
+    var confirmPassword by remember { mutableStateOf("") }
+    var register by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var saved by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    val initials = displayName.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        .take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("")
+        .ifBlank { email.firstOrNull()?.uppercaseChar()?.toString() ?: "M" }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
         Text("‹ Назад", color = Muted, modifier = Modifier.clickable { onBack() })
-        Text("Профиль MOVNET", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
+        Text("АККАУНТ MOVNET", color = Color(0xFFFFA6B8), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text("Твой профиль", fontSize = 29.sp, fontWeight = FontWeight.ExtraBold)
         if (loggedIn) {
-            Text("Вы вошли как $email", color = Color(0xFF65D6A2))
-            Text("Аккаунт подтверждён сервером MOVNET.", color = Muted)
-            Button(onClick = onLogout, colors = ButtonDefaults.buttonColors(containerColor = Accent)) { Text("Выйти") }
-        } else {
-            Text(if (register) "Создай аккаунт MOVNET. Пароль должен содержать не менее 10 символов." else "Войди в существующий аккаунт MOVNET.", color = Muted)
-            OutlinedTextField(value = email, onValueChange = onEmail, label = { Text("Электронная почта") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Пароль") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-            error?.let { Text(it, color = Color(0xFFFF7A8A)) }
-            Button(onClick = {
-                scope.launch {
-                    busy = true; error = null
-                    try { onSubmit(email, password, register) }
-                    catch (e: Exception) { error = e.message ?: "Не удалось выполнить запрос" }
-                    finally { busy = false }
+            Row(
+                Modifier.fillMaxWidth().background(
+                    Brush.linearGradient(listOf(Color(0xFF541329), Color(0xFF171B25))),
+                    RoundedCornerShape(22.dp)
+                ).padding(18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier.size(66.dp).background(Accent, RoundedCornerShape(22.dp)),
+                    contentAlignment = Alignment.Center
+                ) { Text(initials, fontSize = 25.sp, fontWeight = FontWeight.Black) }
+                Column(Modifier.padding(start = 14.dp)) {
+                    Text(displayName.ifBlank { "Пользователь MOVNET" }, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(email, color = Muted, fontSize = 12.sp)
+                    Text("Аккаунт активен", color = Color(0xFF65D6A2), fontSize = 11.sp)
                 }
-            }, enabled = !busy && email.contains("@") && password.length >= if (register) 10 else 1,
-                modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Accent)) {
-                Text(if (busy) "Подключение…" else if (register) "Зарегистрироваться" else "Войти")
             }
-            TextButton(onClick = { register = !register; error = null }) {
-                Text(if (register) "Уже есть аккаунт? Войти" else "Нет аккаунта? Зарегистрироваться", color = Color(0xFFFFA6B8))
+            Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("МОЯ ПОДПИСКА", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(plan, color = if (plan == "Free") Color.White else Color(0xFFFFC857),
+                        fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(if (plan == "Free") "Базовый доступ MOVNET" else "Подписка активна",
+                        color = Muted, fontSize = 12.sp)
+                }
             }
-            Text("Для работы авторизации необходимо развернуть backend и указать HTTPS-адрес API при сборке приложения.", color = Muted, fontSize = 12.sp)
+            Text("Данные профиля", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            OutlinedTextField(
+                value = displayName, onValueChange = { onDisplayName(it); saved = false },
+                label = { Text("Имя пользователя") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+            )
+            Text("Дата регистрации: " + createdAt.substringBefore("T").ifBlank { "—" },
+                color = Muted, fontSize = 12.sp)
+            error?.let { Text(it, color = Color(0xFFFF7A8A)) }
+            if (saved) Text("Профиль сохранён ✓", color = Color(0xFF65D6A2))
+            Button(
+                onClick = {
+                    scope.launch {
+                        busy = true; error = null; saved = false
+                        try { onSaveProfile(displayName); saved = true }
+                        catch (e: Exception) { error = e.message ?: "Не удалось сохранить профиль" }
+                        finally { busy = false }
+                    }
+                },
+                enabled = !busy && displayName.trim().length >= 2,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+            ) { Text(if (busy) "Сохраняем…" else "Сохранить профиль") }
+            OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) { Text("Выйти из аккаунта") }
+        } else {
+            Text("Создай аккаунт, чтобы пользоваться MOVNET на своих устройствах.",
+                color = Muted, fontSize = 13.sp)
+            OutlinedTextField(
+                value = displayName, onValueChange = onDisplayName,
+                label = { Text("Имя пользователя") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = email, onValueChange = onEmail,
+                label = { Text("Электронная почта") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = password, onValueChange = { password = it },
+                label = { Text("Пароль (минимум 10 символов)") }, singleLine = true,
+                visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()
+            )
+            if (register) {
+                OutlinedTextField(
+                    value = confirmPassword, onValueChange = { confirmPassword = it },
+                    label = { Text("Повтори пароль") }, singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()
+                )
+            }
+            error?.let { Text(it, color = Color(0xFFFF7A8A)) }
+            Button(
+                onClick = {
+                    scope.launch {
+                        busy = true; error = null
+                        try { onSubmit(displayName, email, password, register) }
+                        catch (e: Exception) { error = e.message ?: "Не удалось выполнить запрос" }
+                        finally { busy = false }
+                    }
+                },
+                enabled = !busy && email.contains("@") &&
+                    password.length >= if (register) 10 else 1 &&
+                    (!register || (displayName.trim().length >= 2 && password == confirmPassword)),
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+            ) { Text(if (busy) "Подключение…" else if (register) "Создать аккаунт" else "Войти") }
+            TextButton(onClick = {
+                register = !register; error = null; password = ""; confirmPassword = ""
+            }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (register) "Уже есть аккаунт? Войти" else "Впервые в MOVNET? Создать аккаунт",
+                    color = Color(0xFFFFA6B8))
+            }
+            Text("Пароль хранится на сервере только в виде защищённого хеша.",
+                color = Muted, fontSize = 11.sp)
         }
     }
 }
