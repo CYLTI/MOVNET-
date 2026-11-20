@@ -53,7 +53,7 @@ MOVNET — Android-клиент каталога фильмов и FastAPI backe
 
 GitHub Actions запускается при push в `main`, `master` или `release/**`, а также вручную через **Actions → Build MOVNET APK → Run workflow**.
 
-Для подключения приложения создайте GitHub Actions Variable `MOVNET_API_BASE_URL` со значением публичного HTTPS URL API без завершающего `/`. Затем скачайте артефакт `MOVNET-0.9.0-APK` из успешного запуска. Это debug APK для тестирования, не production-релиз.
+По умолчанию APK нацелен на текущий Render URL `https://movnet-75g3.onrender.com`. Если используете другой сервер, задайте GitHub Actions Variable `MOVNET_API_BASE_URL` с публичным HTTPS URL API без завершающего `/`. Затем скачайте артефакт `MOVNET-0.9.0-APK` из успешного запуска. Это debug APK для тестирования, не production-релиз.
 
 ## Локальный запуск backend
 
