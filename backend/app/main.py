@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     access_token_minutes: int = 30
     cors_origins: str = "http://localhost:3000"
     admin_api_key: str = ""
+    creator_emails: str = ""  # Comma-separated creator accounts with permanent Premium+
     app_env: str = "development"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -336,9 +337,13 @@ def update_me(body: ProfileUpdateRequest, user: User = Depends(current_user), db
 
 @app.get("/entitlements")
 def entitlements(user: User = Depends(current_user), db: Session = Depends(db_session)):
+    # Creator privileges are configured server-side and cannot be self-assigned by clients.
+    creator_emails = {value.strip().lower() for value in settings.creator_emails.split(",") if value.strip()}
+    if user.email.lower() in creator_emails:
+        return {"active": True, "plan": "Premium+", "expires_at": None, "is_creator": True}
     item = db.scalar(select(Entitlement).where(Entitlement.user_id == user.id))
     active = bool(item and utc_aware(item.expires_at) > datetime.now(timezone.utc))
-    return {"active": active, "plan": item.plan if active else None, "expires_at": item.expires_at if active else None}
+    return {"active": active, "plan": item.plan if active else None, "expires_at": item.expires_at if active else None, "is_creator": False}
 
 
 def utc_aware(value: datetime) -> datetime:
