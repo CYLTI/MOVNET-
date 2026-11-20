@@ -5,6 +5,7 @@ on:
     branches: ["release/0.9.0"]
     paths:
       - ".github/workflows/prepare-release.yml"
+      - ".github/scripts/prepare_release.py"
 
 permissions:
   contents: write
@@ -23,7 +24,10 @@ jobs:
           unzip -q MOVNET_0.8.0_MP4_test.zip -d /tmp/movnet-source
           PROJECT_DIR="$(find /tmp/movnet-source -type f -path '*/app/build.gradle.kts' -print -quit | sed 's|/app/build.gradle.kts$||')"
           test -n "$PROJECT_DIR"
+          cp .github/workflows/android.yml /tmp/android-workflow.yml
           cp -a "$PROJECT_DIR"/. .
+          mkdir -p .github/workflows
+          cp /tmp/android-workflow.yml .github/workflows/android.yml
 
       - name: Apply 0.9.0 fixes and clean archive
         run: python .github/scripts/prepare_release.py
