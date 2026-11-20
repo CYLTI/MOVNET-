@@ -64,46 +64,6 @@ CORS_ORIGINS=http://localhost:3000
 ADMIN_API_KEY=replace_with_a_long_random_admin_key
 """)
 
-(root / ".github/workflows/android.yml").write_text("""name: Build MOVNET APK
-
-on:
-  push:
-    branches: [main, master, "release/**"]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
-
-      - name: Build debug APK
-        run: gradle --no-daemon -PMOVNET_API_BASE_URL="${{ vars.MOVNET_API_BASE_URL }}" assembleDebug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: MOVNET-0.9.0-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 14
-""")
-
 (root / "backend/Dockerfile").write_text("""FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \\
@@ -281,15 +241,7 @@ if changelog.exists():
 """ + old)
 
 # Remove archive and temporary artifacts now that the source tree is extracted.
-(root / "MOVNET_0.8.0_MP4_test.zip").unlink(missing_ok=True)
 (root / "backend/app/main.py.tmp").unlink(missing_ok=True)
 shutil.rmtree(root / "backend/app/__pycache__", ignore_errors=True)
 shutil.rmtree(root / "extracted", ignore_errors=True)
 
-# This bootstrap workflow and script are one-shot. Remove them from the release branch.
-(root / ".github/workflows/prepare-release.yml").unlink(missing_ok=True)
-(root / ".github/scripts/prepare_release.py").unlink(missing_ok=True)
-try:
-    (root / ".github/scripts").rmdir()
-except OSError:
-    pass
