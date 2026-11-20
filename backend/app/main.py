@@ -128,10 +128,10 @@ OPEN_FILMS = [
         "stream_url": "https://video.blender.org/static/webseed/8533ea43-4271-4a57-9694-e9d0b35e1aa1-720.mp4",
     },
     {
-        "title": "Elephants Dream", "genre": "Фантастика", "year": "2006",
-        "emoji": "🐘", "description": "Сюрреалистическое путешествие по загадочному механическому миру. Автор: Blender Foundation / Netherlands Media Art Institute. Лицензия: Creative Commons Attribution 2.5 (CC BY 2.5). Атрибуция: © copyright 2006, Blender Foundation / Netherlands Media Art Institute / www.elephantsdream.org. Изменения MOVNET: поток не изменён.",
-        "meta": "10 мин 54 сек • CC BY 2.5",
-        "stream_url": "https://download.blender.org/ED/ed_1024.avi",
+        "title": "Spring", "genre": "Фэнтези", "year": "2019",
+        "emoji": "🌱", "description": "Короткометражная история о пастушке и её собаке, которые встречают древних духов. Автор: Blender Foundation. Лицензия: Creative Commons Attribution 4.0 (CC BY 4.0). Атрибуция: © Blender Foundation / cloud.blender.org/spring. Изменения MOVNET: поток не изменён.",
+        "meta": "7 мин 44 сек • CC BY 4.0",
+        "stream_url": "https://video.blender.org/static/webseed/3d95fb3d-c866-42c8-9db1-fe82f48ccb95-720.mp4",
     },
 ]
 
