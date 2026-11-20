@@ -9,7 +9,34 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  backend-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build API Docker image
+        run: docker build -t movnet-api:ci backend
+
+      - name: Smoke-test API health endpoint
+        run: |
+          docker run -d --name movnet-api-ci -p 8000:8000 \
+            -e DATABASE_URL="sqlite:///./movnet-ci.db" \
+            -e JWT_SECRET="ci-only-secret-with-at-least-32-characters" \
+            -e ADMIN_API_KEY="ci-only-admin-key-with-at-least-32-characters" \
+            movnet-api:ci
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:8000/health; then
+              docker stop movnet-api-ci
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs movnet-api-ci
+          docker stop movnet-api-ci || true
+          exit 1
+
+  android-build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
