@@ -12,7 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pwdlib import PasswordHash
 from pydantic import BaseModel, EmailStr, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, create_engine, select
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, create_engine, select, inspect, text as sql_text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 
@@ -58,6 +58,7 @@ class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(80), default="")
     password_hash: Mapped[str] = mapped_column(String(512))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     entitlement: Mapped["Entitlement | None"] = relationship(back_populates="user", uselist=False)
@@ -99,6 +100,11 @@ class RedeemCode(Base):
 
 
 Base.metadata.create_all(bind=engine)
+# Safe additive migration for existing Render databases; existing accounts are preserved.
+with engine.begin() as migration:
+    user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
+    if "display_name" not in user_columns:
+        migration.execute(sql_text("ALTER TABLE users ADD COLUMN display_name VARCHAR(80) NOT NULL DEFAULT ''"))
 # Starter catalogue data. Replace demo metadata/streams with content you own or license.
 with SessionLocal() as seed_db:
     if seed_db.scalar(select(CatalogItem.id).limit(1)) is None:
@@ -159,14 +165,19 @@ with SessionLocal() as seed_db:
         demo_item.published = True
     seed_db.commit()
 
-app = FastAPI(title="MOVNET API", version="0.9.0", description="MOVNET account, entitlement and catalogue API")
+app = FastAPI(title="MOVNET API", version="0.10.0", description="MOVNET account, entitlement and catalogue API")
 origins = [x.strip() for x in settings.cors_origins.split(",") if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Authorization", "Content-Type", "X-Admin-Key"])
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
+    display_name: str = Field(min_length=2, max_length=80)
     password: str = Field(min_length=10, max_length=128)
+
+
+class ProfileUpdateRequest(BaseModel):
+    display_name: str = Field(min_length=2, max_length=80)
 
 
 class LoginRequest(BaseModel):
@@ -295,7 +306,7 @@ def register(body: RegisterRequest, db: Session = Depends(db_session)):
     email = body.email.lower()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(status_code=409, detail="Email already registered")
-    user = User(email=email, password_hash=password_hash.hash(body.password))
+    user = User(email=email, display_name=body.display_name.strip(), password_hash=password_hash.hash(body.password))
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -312,7 +323,15 @@ def login(body: LoginRequest, db: Session = Depends(db_session)):
 
 @app.get("/me")
 def me(user: User = Depends(current_user)):
-    return {"id": user.id, "email": user.email, "created_at": user.created_at}
+    return {"id": user.id, "email": user.email, "display_name": user.display_name, "created_at": user.created_at}
+
+
+@app.put("/me")
+def update_me(body: ProfileUpdateRequest, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    user.display_name = body.display_name.strip()
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "email": user.email, "display_name": user.display_name, "created_at": user.created_at}
 
 
 @app.get("/entitlements")
