@@ -151,7 +151,9 @@ with SessionLocal() as seed_db:
             published=True,
         )
         seed_db.add(demo_item)
-    elif not demo_item.stream_url:
+    else:
+        # Keep the existing database row in sync when the demo stream URL changes.
+        # Render uses a persistent database, so changing only the seed constant is not enough.
         demo_item.stream_url = DEMO_STREAM_URL
         demo_item.description = DEMO_DESCRIPTION
         demo_item.published = True
