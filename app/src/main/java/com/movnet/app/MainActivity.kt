@@ -47,7 +47,7 @@ private val Accent = Color(0xFFE50935)
 private val Muted = Color(0xFF9AA3B2)
 
 private val contentTypes = listOf("Всё", "Фильмы", "Сериалы", "Мультфильмы", "Мультсериалы")
-private val genres = listOf("Все жанры", "Боевик", "Комедия", "Фантастика", "Детектив", "Драма", "Ужасы", "Приключения", "Семейный")
+private val genres = listOf("Все жанры", "Боевик", "Комедия", "Фантастика", "Детектив", "Драма", "Ужасы", "Приключения", "Семейный", "Фэнтези")
 
 data class Movie(
     val title: String,
