@@ -173,7 +173,7 @@ app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True
 class RegisterRequest(BaseModel):
     email: EmailStr
     display_name: str = Field(default="Пользователь", min_length=2, max_length=80)
-    password: str = Field(min_length=10, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
 
 
 class ProfileUpdateRequest(BaseModel):
