@@ -61,17 +61,12 @@ data class Movie(
     val streamUrl: String? = null
 )
 
-private val catalog = listOf(
-    Movie("Последний рубеж", "Боевик", "2025", false, "🚀", "Команда исследователей отправляется на опасную миссию за пределы известной галактики.", "Фильмы", "2 ч 08 мин"),
-    Movie("Тёмный город", "Детектив", "2024", false, "🌃", "Молодой следователь раскрывает тайну, которая меняет его представление о родном городе.", "Фильмы", "1 ч 52 мин"),
-    Movie("Ледяная планета", "Фантастика", "2025", true, "🪐", "Экспедиция ищет новый дом для человечества на далёкой ледяной планете.", "Фильмы", "2 ч 14 мин"),
-    Movie("Ночная смена", "Ужасы", "2023", true, "🌙", "Обычная ночная смена превращается в испытание, когда в здании гаснет свет.", "Фильмы", "1 ч 46 мин"),
-    Movie("Город на краю", "Драма", "2025", false, "🏙️", "История людей, чьи судьбы пересекаются в большом городе.", "Сериалы", "1 сезон • 8 серий"),
-    Movie("Код будущего", "Фантастика", "2024", true, "🤖", "Группа друзей обнаруживает загадочную технологию.", "Сериалы", "2 сезона • 16 серий"),
-    Movie("Космические друзья", "Приключения", "2025", false, "🧑‍🚀", "Весёлое путешествие маленьких исследователей по далёким мирам.", "Мультфильмы", "1 ч 24 мин"),
-    Movie("Лесные истории", "Семейный", "2024", false, "🦊", "Лисёнок и его друзья учатся помогать друг другу.", "Мультфильмы", "1 ч 18 мин"),
-    Movie("Мега-команда", "Комедия", "2025", false, "🦸", "Необычная команда спасает свой город от забавных неприятностей.", "Мультсериалы", "3 сезона • 24 серии"),
-    Movie("Тайны океана", "Приключения", "2024", true, "🐬", "Юные исследователи открывают секреты подводного мира.", "Мультсериалы", "1 сезон • 12 серий")
+// Offline-safe catalogue: openly licensed Blender Foundation films.
+private val openLicensedFallback = listOf(
+    Movie("Big Buck Bunny", "Комедия", "2008", false, "🐰", "Открытый мультфильм Blender Foundation. Лицензия CC BY 3.0.", "Фильмы", "9 мин 56 сек • CC BY 3.0", "https://video.blender.org/static/webseed/bf1f3fb5-b119-4f9f-9930-8e20e892b898-720.mp4"),
+    Movie("Sintel", "Фэнтези", "2010", false, "🐉", "Фэнтези-фильм Blender Foundation. Лицензия CC BY 3.0.", "Фильмы", "14 мин 48 сек • CC BY 3.0", "https://video.blender.org/static/webseed/0eb052d0-fd51-43e6-aa33-ecdbf77a5d40-720.mp4"),
+    Movie("Tears of Steel", "Фантастика", "2012", false, "🤖", "Научно-фантастический фильм Blender Institute. Лицензия CC BY 3.0.", "Фильмы", "12 мин 14 сек • CC BY 3.0", "https://video.blender.org/static/webseed/8533ea43-4271-4a57-9694-e9d0b35e1aa1-720.mp4"),
+    Movie("Spring", "Фэнтези", "2019", false, "🌱", "Короткометражный фильм Blender Foundation. Лицензия CC BY 4.0.", "Фильмы", "7 мин 44 сек • CC BY 4.0", "https://video.blender.org/static/webseed/3d95fb3d-c866-42c8-9db1-fe82f48ccb95-720.mp4")
 )
 
 class MainActivity : ComponentActivity() {
@@ -94,13 +89,13 @@ fun MovnetApp() {
     var accountPlan by remember { mutableStateOf("Free") }
     var authToken by remember { mutableStateOf(preferences.getString("access_token", null)) }
     var loggedIn by remember { mutableStateOf(authToken != null) }
-    var catalogItems by remember { mutableStateOf<List<Movie>>(emptyList()) }
+    var catalogItems by remember { mutableStateOf(openLicensedFallback) }
     var catalogLoading by remember { mutableStateOf(true) }
     var catalogError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         try { catalogItems = MovnetApi.loadCatalog(); catalogError = null }
-        catch (e: Exception) { catalogError = e.message ?: "Не удалось загрузить каталог" }
+        catch (e: Exception) { catalogError = e.message ?: "Нет соединения с сервером. Показана резервная подборка." }
         finally { catalogLoading = false }
     }
     LaunchedEffect(authToken) {
@@ -114,7 +109,7 @@ fun MovnetApp() {
                 val entitlement = MovnetApi.loadEntitlements(token)
                 accountPlan = if (entitlement.optBoolean("active")) entitlement.optString("plan", "Premium") else "Free"
             }
-            catch (_: Exception) { preferences.edit().remove("access_token").apply(); authToken = null; loggedIn = false }
+            catch (e: Exception) { if (e.message?.contains("Invalid or expired token", true) == true || e.message?.contains("Account not found", true) == true) { preferences.edit().remove("access_token").apply(); authToken = null; loggedIn = false } }
         }
     }
     var showPremium by remember { mutableStateOf(false) }
@@ -287,9 +282,9 @@ fun CatalogScreen(
 
         // Прокручивается только список карточек; фильтры и нижняя навигация остаются на месте.
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 12.dp)) {
-            if (catalogLoading) {
+            if (catalogLoading && catalog.isEmpty()) {
                 item { CircularProgressIndicator(color = Accent, modifier = Modifier.padding(24.dp)) }
-            } else if (catalogError != null) {
+            } else if (catalogError != null && catalog.isEmpty()) {
                 item { Text("Каталог сервера недоступен: $catalogError", color = Color(0xFFFFC857), modifier = Modifier.padding(20.dp)) }
             } else if (filtered.isEmpty()) {
                 item {
@@ -718,7 +713,7 @@ fun AccountScreen(
 ) {
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
-    var register by remember { mutableStateOf(true) }
+    var register by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var saved by remember { mutableStateOf(false) }
@@ -789,7 +784,7 @@ fun AccountScreen(
             ) { Text(if (busy) "Сохраняем…" else "Сохранить профиль") }
             OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) { Text("Выйти из аккаунта") }
         } else {
-            Text("Создай аккаунт, чтобы пользоваться MOVNET на своих устройствах.",
+            Text(if (register) "Создай аккаунт MOVNET. Пароль должен содержать минимум 8 символов." else "Войди в свой аккаунт MOVNET. Если аккаунта ещё нет — переключись на регистрацию.",
                 color = Muted, fontSize = 13.sp)
             OutlinedTextField(
                 value = displayName, onValueChange = onDisplayName,
