@@ -160,6 +160,7 @@ fun MovnetApp() {
                 showPremium -> PremiumScreen(onBack = { showPremium = false })
                 selectedMovie != null -> MovieDetails(
                     movie = selectedMovie!!,
+                    hasPremium = accountPlan != "Free",
                     onBack = { selectedMovie = null },
                     onPremium = { showPremium = true },
                     onPlay = { playingMovie = selectedMovie }
@@ -384,7 +385,7 @@ fun MovieRow(movie: Movie, isFavorite: Boolean, onClick: () -> Unit, onFavorite:
 }
 
 @Composable
-fun MovieDetails(movie: Movie, onBack: () -> Unit, onPremium: () -> Unit, onPlay: () -> Unit) {
+fun MovieDetails(movie: Movie, hasPremium: Boolean, onBack: () -> Unit, onPremium: () -> Unit, onPlay: () -> Unit) {
     val isSeries = movie.type == "Сериалы" || movie.type == "Мультсериалы"
     val seasonCount = when (movie.title) {
         "Код будущего" -> 2
@@ -416,18 +417,24 @@ fun MovieDetails(movie: Movie, onBack: () -> Unit, onPremium: () -> Unit, onPlay
             Spacer(Modifier.height(14.dp))
             Text(movie.description, color = Color(0xFFD0D4DC), lineHeight = 22.sp)
             Spacer(Modifier.height(10.dp))
-            if (movie.premium) {
-                Text("Офлайн-загрузки доступны подписчикам Premium. Активация подписки появится после подключения оплаты.", color = Muted, fontSize = 12.sp)
-            } else {
-                Text("Офлайн-загрузки доступны только с активной подпиской Premium.", color = Muted, fontSize = 12.sp)
+            if (hasPremium) {
+                Text("✓ Подписка активна: доступ к Premium-каталогу открыт.", color = Color(0xFF65D6A2), fontSize = 12.sp)
+            } else if (movie.premium) {
+                Text("Этот материал входит в Premium-каталог.", color = Muted, fontSize = 12.sp)
             }
             Spacer(Modifier.height(18.dp))
 
             if (movie.premium) {
-                Text("Этот материал отмечен как доступный по подписке Premium.", color = Color(0xFFFFC857))
                 Spacer(Modifier.height(10.dp))
-                Button(onClick = onPremium, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Accent)) {
-                    Text("Посмотреть тарифы")
+                if (hasPremium) {
+                    Button(onClick = onPlay, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Accent)) {
+                        Text("▶  Смотреть с Premium")
+                    }
+                } else {
+                    Text("Этот материал отмечен как доступный по подписке Premium.", color = Color(0xFFFFC857))
+                    Button(onClick = onPremium, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Accent)) {
+                        Text("Посмотреть тарифы")
+                    }
                 }
             }
 
@@ -470,7 +477,7 @@ fun MovieDetails(movie: Movie, onBack: () -> Unit, onPremium: () -> Unit, onPlay
                 }
                 if (selectedEpisode > 0) {
                     Spacer(Modifier.height(10.dp))
-                    if (movie.premium) {
+                    if (movie.premium && !hasPremium) {
                         Button(onClick = onPremium, modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = Accent)) {
                             Text("Оформить Premium для просмотра")
