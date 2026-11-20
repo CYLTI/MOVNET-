@@ -106,67 +106,63 @@ with engine.begin() as migration:
     user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
     if "display_name" not in user_columns:
         migration.execute(sql_text("ALTER TABLE users ADD COLUMN display_name VARCHAR(80) NOT NULL DEFAULT ''"))
-# Starter catalogue data. Replace demo metadata/streams with content you own or license.
-with SessionLocal() as seed_db:
-    if seed_db.scalar(select(CatalogItem.id).limit(1)) is None:
-        starter_items = [
-            ("Последний рубеж", "Боевик", "2025", False, "🚀", "Команда исследователей отправляется на опасную миссию за пределы известной галактики.", "Фильмы", "2 ч 08 мин"),
-            ("Тёмный город", "Детектив", "2024", False, "🌃", "Молодой следователь раскрывает тайну родного города.", "Фильмы", "1 ч 52 мин"),
-            ("Ледяная планета", "Фантастика", "2025", True, "🪐", "Экспедиция ищет новый дом для человечества.", "Фильмы", "2 ч 14 мин"),
-            ("Ночная смена", "Ужасы", "2023", True, "🌙", "Обычная ночная смена превращается в испытание.", "Фильмы", "1 ч 46 мин"),
-            ("Город на краю", "Драма", "2025", False, "🏙️", "История людей, чьи судьбы пересекаются в большом городе.", "Сериалы", "1 сезон • 8 серий"),
-            ("Код будущего", "Фантастика", "2024", True, "🤖", "Группа друзей обнаруживает загадочную технологию.", "Сериалы", "2 сезона • 16 серий"),
-            ("Космические друзья", "Приключения", "2025", False, "🧑‍🚀", "Путешествие маленьких исследователей по далёким мирам.", "Мультфильмы", "1 ч 24 мин"),
-            ("Лесные истории", "Семейный", "2024", False, "🦊", "Лисёнок и друзья учатся помогать друг другу.", "Мультфильмы", "1 ч 18 мин"),
-            ("Мега-команда", "Комедия", "2025", False, "🦸", "Необычная команда спасает свой город.", "Мультсериалы", "3 сезона • 24 серии"),
-            ("Тайны океана", "Приключения", "2024", True, "🐬", "Юные исследователи открывают секреты подводного мира.", "Мультсериалы", "1 сезон • 12 серий"),
-        ]
-        for row in starter_items:
-            seed_db.add(CatalogItem(title=row[0], genre=row[1], year=row[2], premium=row[3], emoji=row[4], description=row[5], content_type=row[6], meta=row[7], stream_url=None))
-        seed_db.commit()
+# MOVNET starter catalogue: openly licensed Blender Foundation films.
+# Each entry is independently playable and carries attribution/license information.
+OPEN_FILMS = [
+    {
+        "title": "Big Buck Bunny", "genre": "Комедия", "year": "2008",
+        "emoji": "🐰", "description": "Открытый короткометражный мультфильм о добродушном зайце, который даёт отпор трём хулиганистым грызунам. Автор: Blender Foundation. Лицензия: Creative Commons Attribution 3.0 (CC BY 3.0). Атрибуция: © copyright 2008, Blender Foundation / www.bigbuckbunny.org. Изменения MOVNET: поток не изменён.",
+        "meta": "9 мин 56 сек • CC BY 3.0",
+        "stream_url": "https://video.blender.org/static/webseed/bf1f3fb5-b119-4f9f-9930-8e20e892b898-720.mp4",
+    },
+    {
+        "title": "Sintel", "genre": "Фэнтези", "year": "2010",
+        "emoji": "🐉", "description": "Фэнтези-история о девушке, которая отправляется на поиски маленького дракона. Автор: Blender Foundation. Лицензия: Creative Commons Attribution 3.0 (CC BY 3.0). Атрибуция: © copyright Blender Foundation / durian.blender.org. Изменения MOVNET: поток не изменён.",
+        "meta": "14 мин 48 сек • CC BY 3.0",
+        "stream_url": "https://video.blender.org/static/webseed/0eb052d0-fd51-43e6-aa33-ecdbf77a5d40-720.mp4",
+    },
+    {
+        "title": "Tears of Steel", "genre": "Фантастика", "year": "2012",
+        "emoji": "🤖", "description": "Научно-фантастический фильм о команде, пытающейся спасти Амстердам от вторжения роботов. Автор: Blender Institute. Лицензия: Creative Commons Attribution 3.0 (CC BY 3.0). Атрибуция: (CC) Blender Foundation / mango.blender.org. Изменения MOVNET: поток не изменён.",
+        "meta": "12 мин 14 сек • CC BY 3.0",
+        "stream_url": "https://video.blender.org/static/webseed/8533ea43-4271-4a57-9694-e9d0b35e1aa1-720.mp4",
+    },
+    {
+        "title": "Elephants Dream", "genre": "Фантастика", "year": "2006",
+        "emoji": "🐘", "description": "Сюрреалистическое путешествие по загадочному механическому миру. Автор: Blender Foundation / Netherlands Media Art Institute. Лицензия: Creative Commons Attribution 2.5 (CC BY 2.5). Атрибуция: © copyright 2006, Blender Foundation / Netherlands Media Art Institute / www.elephantsdream.org. Изменения MOVNET: поток не изменён.",
+        "meta": "10 мин 54 сек • CC BY 2.5",
+        "stream_url": "https://download.blender.org/ED/ed_1024.avi",
+    },
+]
 
-# One clearly-labelled, openly licensed sample title for player testing.
-# Big Buck Bunny is a Blender Foundation open movie under CC BY 3.0.
-# This is a remote HTTPS test stream, not a file uploaded to MOVNET storage.
-DEMO_TITLE = "Big Buck Bunny"
-DEMO_STREAM_URL = "https://flutter.github.io/assets-for-api-docs/assets/videos/bee.mp4"
-DEMO_DESCRIPTION = (
-    "Открытый короткометражный мультфильм Blender Foundation. "
-    "Добавлен в MOVNET только для проверки видеоплеера; это не фильм из коммерческого каталога. "
-    "Лицензия CC BY 3.0: https://creativecommons.org/licenses/by/3.0/ "
-    "Авторство: Blender Foundation / www.bigbuckbunny.org"
-)
 with SessionLocal() as seed_db:
-    # Do not attach unrelated demo clips to fictional catalogue titles.
-    for title in ("Последний рубеж", "Тёмный город", "Ледяная планета"):
+    # Remove fictional placeholders from the public catalogue; retain rows for audit/history.
+    placeholder_titles = [
+        "Последний рубеж", "Тёмный город", "Ледяная планета", "Ночная смена",
+        "Город на краю", "Код будущего", "Космические друзья",
+        "Лесные истории", "Мега-команда", "Тайны океана",
+    ]
+    for title in placeholder_titles:
         item = seed_db.scalar(select(CatalogItem).where(CatalogItem.title == title))
-        if item is not None and item.stream_url and item.stream_url.startswith("https://storage.googleapis.com/gtv-videos-bucket/sample/"):
-            item.stream_url = None
+        if item is not None:
+            item.published = False
 
-    demo_item = seed_db.scalar(select(CatalogItem).where(CatalogItem.title == DEMO_TITLE))
-    if demo_item is None:
-        demo_item = CatalogItem(
-            title=DEMO_TITLE,
-            genre="Мультфильм",
-            year="2008",
-            premium=False,
-            emoji="🐰",
-            description=DEMO_DESCRIPTION,
-            content_type="Тестовые видео",
-            meta="Короткометражный фильм • Blender Foundation",
-            stream_url=DEMO_STREAM_URL,
-            published=True,
-        )
-        seed_db.add(demo_item)
-    else:
-        # Keep the existing database row in sync when the demo stream URL changes.
-        # Render uses a persistent database, so changing only the seed constant is not enough.
-        demo_item.stream_url = DEMO_STREAM_URL
-        demo_item.description = DEMO_DESCRIPTION
-        demo_item.published = True
+    for film in OPEN_FILMS:
+        item = seed_db.scalar(select(CatalogItem).where(CatalogItem.title == film["title"]))
+        values = {
+            "genre": film["genre"], "year": film["year"], "premium": False,
+            "emoji": film["emoji"], "description": film["description"],
+            "content_type": "Фильмы", "meta": film["meta"],
+            "stream_url": film["stream_url"], "published": True,
+        }
+        if item is None:
+            seed_db.add(CatalogItem(title=film["title"], **values))
+        else:
+            for key, value in values.items():
+                setattr(item, key, value)
     seed_db.commit()
 
-app = FastAPI(title="MOVNET API", version="0.10.0", description="MOVNET account, entitlement and catalogue API")
+app = FastAPI(title="MOVNET API", version="0.11.0", description="MOVNET account, entitlement and openly licensed film catalogue API")
 origins = [x.strip() for x in settings.cors_origins.split(",") if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Authorization", "Content-Type", "X-Admin-Key"])
 
