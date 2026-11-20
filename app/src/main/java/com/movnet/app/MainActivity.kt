@@ -2,6 +2,7 @@ package com.movnet.app
 
 import android.os.Bundle
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.view.View
 import android.view.WindowManager
@@ -552,8 +553,16 @@ private fun SubscriptionCard(
 @Composable
 fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
     val context = LocalContext.current
-    val activity = context as? ComponentActivity
+    // Compose may provide a ContextThemeWrapper rather than the Activity itself.
+    val activity = remember(context) {
+        var current: Context = context
+        while (current is ContextWrapper && current !is ComponentActivity) {
+            current = current.baseContext
+        }
+        current as? ComponentActivity
+    }
     var fullScreen by remember { mutableStateOf(false) }
+    var controlsVisible by remember { mutableStateOf(true) }
     val player = remember { ExoPlayer.Builder(context).build() }
 
     LaunchedEffect(movie.streamUrl) {
@@ -568,6 +577,7 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
     }
 
     LaunchedEffect(fullScreen) {
+        controlsVisible = true
         activity?.let { host ->
             host.requestedOrientation = if (fullScreen) {
                 ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -618,19 +628,32 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
                         PlayerView(ctx).apply {
                             this.player = player
                             useController = true
+                            controllerShowTimeoutMs = 3000
+                            controllerHideOnTouch = true
+                            controllerAutoShow = true
                             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            setControllerVisibilityListener(
+                                PlayerView.ControllerVisibilityListener { visibility ->
+                                    controlsVisible = visibility == View.VISIBLE
+                                }
+                            )
                         }
                     },
                     modifier = if (fullScreen) Modifier.fillMaxSize()
                     else Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                 )
-                Text(
-                    "⛶", color = Color.White, fontSize = 26.sp,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(14.dp)
-                        .background(Color(0x99000000), RoundedCornerShape(8.dp))
-                        .clickable { fullScreen = !fullScreen }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                )
+                // The fullscreen toggle follows the native player controls:
+                // it disappears with them and returns when the viewer taps the video.
+                if (controlsVisible) {
+                    Text(
+                        if (fullScreen) "⛶" else "⛶",
+                        color = Color.White, fontSize = 26.sp,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(14.dp)
+                            .background(Color(0x99000000), RoundedCornerShape(8.dp))
+                            .clickable { fullScreen = !fullScreen }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
             }
             if (!fullScreen) {
                 Text(
@@ -654,7 +677,6 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
         }
     }
 }
-
 @Composable
 fun AccountScreen(
     email: String, loggedIn: Boolean, onEmail: (String) -> Unit,
