@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: MOVNET-api
+    runtime: docker
+    repo: https://github.com/CYLTI/MOVNET-
+    branch: release/0.9.0
+    region: frankfurt
+    plan: free
+    autoDeployTrigger: commit
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: movnet-db
+          property: connectionString
+      - key: APP_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_API_KEY
+        generateValue: true
+
+databases:
+  - name: movnet-db
+    plan: free
+    region: frankfurt
+    postgresMajorVersion: "18"
+    databaseName: movnet_db
+    user: movnet_db_user
