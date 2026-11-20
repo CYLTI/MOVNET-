@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import smtplib
+from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from typing import Generator
 
@@ -25,6 +27,11 @@ class Settings(BaseSettings):
     admin_api_key: str = ""
     creator_emails: str = ""  # Comma-separated creator accounts with permanent Premium+
     app_env: str = "development"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
@@ -89,6 +96,16 @@ class CatalogItem(Base):
     published: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
 
+class PasswordResetCode(Base):
+    __tablename__ = "password_reset_codes"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class RedeemCode(Base):
     __tablename__ = "redeem_codes"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -113,25 +130,25 @@ OPEN_FILMS = [
         "title": "Big Buck Bunny", "genre": "Комедия", "year": "2008",
         "emoji": "🐰", "description": "Открытый короткометражный мультфильм о добродушном зайце, который даёт отпор трём хулиганистым грызунам. Автор: Blender Foundation. Лицензия: Creative Commons Attribution 3.0 (CC BY 3.0). Атрибуция: © copyright 2008, Blender Foundation / www.bigbuckbunny.org. Изменения MOVNET: поток не изменён.",
         "meta": "9 мин 56 сек • CC BY 3.0",
-        "stream_url": "https://video.blender.org/static/webseed/bf1f3fb5-b119-4f9f-9930-8e20e892b898-720.mp4",
+        "stream_url": "https://archive.org/download/BigBuckBunny_328/BigBuckBunny_512kb.mp4",
     },
     {
         "title": "Sintel", "genre": "Фэнтези", "year": "2010",
         "emoji": "🐉", "description": "Фэнтези-история о девушке, которая отправляется на поиски маленького дракона. Автор: Blender Foundation. Лицензия: Creative Commons Attribution 3.0 (CC BY 3.0). Атрибуция: © copyright Blender Foundation / durian.blender.org. Изменения MOVNET: поток не изменён.",
         "meta": "14 мин 48 сек • CC BY 3.0",
-        "stream_url": "https://video.blender.org/static/webseed/0eb052d0-fd51-43e6-aa33-ecdbf77a5d40-720.mp4",
+        "stream_url": "https://archive.org/download/Sintel/sintel-2048-stereo_512kb.mp4",
     },
     {
         "title": "Tears of Steel", "genre": "Фантастика", "year": "2012",
         "emoji": "🤖", "description": "Научно-фантастический фильм о команде, пытающейся спасти Амстердам от вторжения роботов. Автор: Blender Institute. Лицензия: Creative Commons Attribution 3.0 (CC BY 3.0). Атрибуция: (CC) Blender Foundation / mango.blender.org. Изменения MOVNET: поток не изменён.",
         "meta": "12 мин 14 сек • CC BY 3.0",
-        "stream_url": "https://video.blender.org/static/webseed/8533ea43-4271-4a57-9694-e9d0b35e1aa1-720.mp4",
+        "stream_url": "https://archive.org/download/Tears-of-Steel/tears_of_steel_720p.mp4",
     },
     {
-        "title": "Spring", "genre": "Фэнтези", "year": "2019",
-        "emoji": "🌱", "description": "Короткометражная история о пастушке и её собаке, которые встречают древних духов. Автор: Blender Foundation. Лицензия: Creative Commons Attribution 4.0 (CC BY 4.0). Атрибуция: © Blender Foundation / cloud.blender.org/spring. Изменения MOVNET: поток не изменён.",
-        "meta": "7 мин 44 сек • CC BY 4.0",
-        "stream_url": "https://video.blender.org/static/webseed/3d95fb3d-c866-42c8-9db1-fe82f48ccb95-720.mp4",
+        "title": "Elephants Dream", "genre": "Фантастика", "year": "2006",
+        "emoji": "🐘", "description": "Открытый фильм Blender Foundation. Лицензия: Creative Commons Attribution. Атрибуция: Blender Foundation / Netherlands Media Art Institute. Изменения MOVNET: поток не изменён.",
+        "meta": "10 мин • CC BY",
+        "stream_url": "https://archive.org/download/ElephantsDream_277/elephant_dreams_640_512kb.mp4",
     },
 ]
 
@@ -197,6 +214,16 @@ class CatalogUpsertRequest(BaseModel):
 
 class RedeemRequest(BaseModel):
     code: str = Field(min_length=12, max_length=128)
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\\d{6}$")
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 def db_session() -> Generator[Session, None, None]:
@@ -316,6 +343,77 @@ def login(body: LoginRequest, db: Session = Depends(db_session)):
     if user is None or not password_hash.verify(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
     return {"access_token": issue_token(user), "token_type": "bearer", "expires_in": settings.access_token_minutes * 60}
+
+
+def _send_password_reset_email(recipient: str, code: str) -> None:
+    if not all([settings.smtp_host, settings.smtp_username, settings.smtp_password, settings.smtp_from_email]):
+        raise HTTPException(status_code=503, detail="Восстановление по почте ещё не настроено на сервере.")
+    message = EmailMessage()
+    message["Subject"] = "Код восстановления пароля MOVNET"
+    message["From"] = settings.smtp_from_email
+    message["To"] = recipient
+    message.set_content(
+        f"Код для смены пароля MOVNET: {code}\\n\\n"
+        "Код действует 10 минут. Если вы не запрашивали смену пароля, просто проигнорируйте письмо."
+    )
+    try:
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
+            server.starttls()
+            server.login(settings.smtp_username, settings.smtp_password)
+            server.send_message(message)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Не удалось отправить письмо. Попробуйте позже.") from exc
+
+
+@app.post("/auth/password/reset/request")
+def request_password_reset(body: PasswordResetRequest, db: Session = Depends(db_session)):
+    email = body.email.lower()
+    user = db.scalar(select(User).where(User.email == email))
+    # Do not reveal whether an account exists.
+    if user is None:
+        return {"message": "Если аккаунт существует, код восстановления отправлен на почту."}
+    now = datetime.now(timezone.utc)
+    db.query(PasswordResetCode).filter(
+        PasswordResetCode.user_id == user.id, PasswordResetCode.used.is_(False)
+    ).update({"used": True})
+    raw_code = f"{secrets.randbelow(1_000_000):06d}"
+    db.add(PasswordResetCode(
+        user_id=user.id,
+        code_hash=hashlib.sha256(raw_code.encode("utf-8")).hexdigest(),
+        expires_at=now + timedelta(minutes=10),
+        attempts=0,
+        used=False,
+    ))
+    db.commit()
+    _send_password_reset_email(user.email, raw_code)
+    return {"message": "Если аккаунт существует, код восстановления отправлен на почту."}
+
+
+@app.post("/auth/password/reset/confirm")
+def confirm_password_reset(body: PasswordResetConfirm, db: Session = Depends(db_session)):
+    user = db.scalar(select(User).where(User.email == body.email.lower()))
+    if user is None:
+        raise HTTPException(status_code=400, detail="Неверный или просроченный код.")
+    now = datetime.now(timezone.utc)
+    reset = db.scalar(
+        select(PasswordResetCode)
+        .where(PasswordResetCode.user_id == user.id, PasswordResetCode.used.is_(False))
+        .order_by(PasswordResetCode.id.desc())
+    )
+    if reset is None or reset.attempts >= 5 or utc_aware(reset.expires_at) <= now:
+        raise HTTPException(status_code=400, detail="Неверный или просроченный код.")
+    supplied_hash = hashlib.sha256(body.code.encode("utf-8")).hexdigest()
+    if not secrets.compare_digest(supplied_hash, reset.code_hash):
+        reset.attempts += 1
+        db.commit()
+        raise HTTPException(status_code=400, detail="Неверный или просроченный код.")
+    user.password_hash = password_hash.hash(body.new_password)
+    reset.used = True
+    db.query(PasswordResetCode).filter(
+        PasswordResetCode.user_id == user.id, PasswordResetCode.id != reset.id
+    ).update({"used": True})
+    db.commit()
+    return {"message": "Пароль успешно изменён. Теперь войдите с новым паролем."}
 
 
 @app.get("/me")
