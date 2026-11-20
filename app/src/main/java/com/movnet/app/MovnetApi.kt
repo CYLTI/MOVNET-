@@ -63,6 +63,17 @@ object MovnetApi {
         }
     }
 
+    suspend fun requestPasswordReset(email: String) {
+        val body = JSONObject().put("email", email.trim().lowercase())
+        request("/auth/password/reset/request", "POST", body)
+    }
+
+    suspend fun confirmPasswordReset(email: String, code: String, newPassword: String) {
+        val body = JSONObject().put("email", email.trim().lowercase())
+            .put("code", code.trim()).put("new_password", newPassword)
+        request("/auth/password/reset/confirm", "POST", body)
+    }
+
     suspend fun loadProfile(token: String): JSONObject = JSONObject(request("/me", token = token))
 
     suspend fun loadEntitlements(token: String): JSONObject = JSONObject(request("/entitlements", token = token))
