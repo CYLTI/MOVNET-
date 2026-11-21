@@ -8,6 +8,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.ui.viewinterop.AndroidView
+import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -62,8 +63,14 @@ data class Movie(
     val description: String,
     val type: String,
     val meta: String,
-    val streamUrl: String? = null
+    val streamUrl: String? = null,
+    val id: Int = 0,
+    val posterUrl: String? = null,
+    val rating: Float = 0f,
+    val ratingCount: Int = 0
 )
+
+data class MovieReview(val author: String, val rating: Int, val text: String)
 
 // Offline-safe catalogue: openly licensed Blender Foundation films.
 private val openLicensedFallback = listOf(
@@ -162,6 +169,12 @@ fun MovnetApp() {
                 selectedMovie != null -> MovieDetails(
                     movie = selectedMovie!!,
                     hasPremium = accountPlan != "Free",
+                    authToken = authToken,
+                    loggedIn = loggedIn,
+                    onSubmitReview = { movieId, rating, reviewText ->
+                        val token = authToken ?: error("Войди в аккаунт, чтобы оставить отзыв")
+                        MovnetApi.submitReview(movieId, rating, reviewText, token)
+                    },
                     onBack = { selectedMovie = null },
                     onPremium = { showPremium = true },
                     onPlay = { playingMovie = selectedMovie }
@@ -221,7 +234,14 @@ fun CatalogScreen(
                 Spacer(Modifier.width(9.dp))
                 Text("MOVNET", fontSize = 23.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
             }
-            Text("КАТАЛОГ", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("КАТАЛОГ", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(10.dp))
+                Button(onClick = onPremium, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Accent)) {
+                    Text("★ Premium", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
 
         OutlinedTextField(
@@ -346,14 +366,18 @@ fun MovieRow(movie: Movie, isFavorite: Boolean, onClick: () -> Unit, onFavorite:
             .background(SurfaceDark, RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.width(92.dp).height(112.dp)
+        Box(Modifier.width(92.dp).height(124.dp)
             .background(Brush.linearGradient(listOf(Color(0xFF52243B), Color(0xFF242C42))), RoundedCornerShape(12.dp)),
-            contentAlignment = Alignment.Center) { Text(movie.emoji, fontSize = 42.sp) }
+            contentAlignment = Alignment.Center) {
+            if (movie.posterUrl != null) AsyncImage(model = movie.posterUrl, contentDescription = "Постер фильма", modifier = Modifier.fillMaxSize())
+            else Text(movie.emoji, fontSize = 42.sp)
+        }
         Column(Modifier.weight(1f).padding(start = 13.dp)) {
             Text(movie.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(Modifier.height(5.dp))
             Text("${movie.year} • ${movie.genre}", color = Muted, fontSize = 11.sp)
             Text(movie.type, color = Color(0xFFB7A4FF), fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+            if (movie.ratingCount > 0) Text("★ ${movie.rating}  (${movie.ratingCount})", color = Color(0xFFFFC857), fontSize = 11.sp)
             Text(movie.meta, color = Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
             Spacer(Modifier.height(7.dp))
             Text(if (movie.premium) "MOVNET PREMIUM" else "БЕСПЛАТНО",
@@ -370,7 +394,20 @@ fun MovieRow(movie: Movie, isFavorite: Boolean, onClick: () -> Unit, onFavorite:
 }
 
 @Composable
-fun MovieDetails(movie: Movie, hasPremium: Boolean, onBack: () -> Unit, onPremium: () -> Unit, onPlay: () -> Unit) {
+fun MovieDetails(
+    movie: Movie, hasPremium: Boolean, authToken: String?, loggedIn: Boolean,
+    onSubmitReview: suspend (Int, Int, String) -> Unit,
+    onBack: () -> Unit, onPremium: () -> Unit, onPlay: () -> Unit
+) {
+    var reviews by remember(movie.id) { mutableStateOf<List<MovieReview>>(emptyList()) }
+    var chosenRating by remember(movie.id) { mutableIntStateOf(5) }
+    var reviewText by remember(movie.id) { mutableStateOf("") }
+    var reviewMessage by remember(movie.id) { mutableStateOf<String?>(null) }
+    var reviewBusy by remember(movie.id) { mutableStateOf(false) }
+    val reviewScope = rememberCoroutineScope()
+    LaunchedEffect(movie.id) {
+        if (movie.id > 0) runCatching { MovnetApi.loadReviews(movie.id) }.onSuccess { reviews = it }
+    }
     val isSeries = movie.type == "Сериалы" || movie.type == "Мультсериалы"
     val seasonCount = when (movie.title) {
         "Код будущего" -> 2
@@ -394,10 +431,15 @@ fun MovieDetails(movie: Movie, hasPremium: Boolean, onBack: () -> Unit, onPremiu
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             Box(Modifier.fillMaxWidth().height(220.dp)
                 .background(Brush.linearGradient(listOf(Color(0xFF5B1D39), Color(0xFF202A42))), RoundedCornerShape(22.dp)),
-                contentAlignment = Alignment.Center) { Text(movie.emoji, fontSize = 78.sp) }
+                contentAlignment = Alignment.Center) {
+                if (movie.posterUrl != null) AsyncImage(model = movie.posterUrl, contentDescription = "Постер фильма", modifier = Modifier.fillMaxSize())
+                else Text(movie.emoji, fontSize = 78.sp)
+            }
             Spacer(Modifier.height(18.dp))
             Text(movie.title, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
             Text("${movie.year} • ${movie.type} • ${movie.genre}", color = Muted)
+            Text(if (movie.ratingCount > 0) "★ ${movie.rating} / 5  •  ${movie.ratingCount} оценок" else "☆ Пока нет оценок",
+                color = Color(0xFFFFC857), fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
             Text(movie.meta, color = Muted, modifier = Modifier.padding(top = 4.dp))
             Spacer(Modifier.height(14.dp))
             Text(movie.description, color = Color(0xFFD0D4DC), lineHeight = 22.sp)
@@ -483,6 +525,50 @@ fun MovieDetails(movie: Movie, hasPremium: Boolean, onBack: () -> Unit, onPremiu
                 }
                 Text("Открывается демонстрационный видеопоток Blender Foundation. Для каталога нужны собственные лицензированные видео.", color = Muted, fontSize = 11.sp,
                     modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
+            }
+            Spacer(Modifier.height(20.dp))
+            HorizontalDivider(color = Color(0xFF303746))
+            Text("Отзывы зрителей", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            if (movie.id > 0) {
+                if (loggedIn) {
+                    Text("Твоя оценка", color = Muted, fontSize = 12.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        (1..5).forEach { star ->
+                            Text(if (star <= chosenRating) "★" else "☆", color = Color(0xFFFFC857), fontSize = 30.sp,
+                                modifier = Modifier.clickable { chosenRating = star }.padding(end = 5.dp))
+                        }
+                    }
+                    OutlinedTextField(value = reviewText, onValueChange = { if (it.length <= 1200) reviewText = it },
+                        modifier = Modifier.fillMaxWidth(), label = { Text("Напиши отзыв") },
+                        minLines = 2, maxLines = 5)
+                    Button(onClick = {
+                        reviewScope.launch {
+                            reviewBusy = true; reviewMessage = null
+                            try {
+                                onSubmitReview(movie.id, chosenRating, reviewText)
+                                reviews = MovnetApi.loadReviews(movie.id)
+                                reviewText = ""; reviewMessage = "Отзыв опубликован ✓"
+                            } catch (e: Exception) { reviewMessage = e.message ?: "Не удалось отправить отзыв" }
+                            finally { reviewBusy = false }
+                        }
+                    }, enabled = !reviewBusy, modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)) {
+                        Text(if (reviewBusy) "Отправляем…" else "Оставить отзыв")
+                    }
+                    reviewMessage?.let { Text(it, color = Muted, fontSize = 12.sp) }
+                } else Text("Войди в аккаунт, чтобы оценить фильм и оставить отзыв.", color = Muted, fontSize = 12.sp)
+                if (reviews.isEmpty()) Text("Пока нет отзывов. Будь первым!", color = Muted, fontSize = 13.sp)
+                reviews.forEach { review ->
+                    Card(Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                        colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text("${review.author}  •  ${"★".repeat(review.rating)}", color = Color(0xFFFFC857), fontWeight = FontWeight.Bold)
+                            if (review.text.isNotBlank()) Text(review.text, color = Color(0xFFE2E5EB), modifier = Modifier.padding(top = 5.dp))
+                        }
+                    }
+                }
+            } else {
+                Text("Отзывы появятся после загрузки фильма в серверный каталог.", color = Muted, fontSize = 12.sp)
             }
             Spacer(Modifier.height(20.dp))
         }
