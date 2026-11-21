@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.SocketTimeoutException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -16,8 +17,10 @@ object MovnetApi {
         val connection = (URL("$baseUrl$path").openConnection() as HttpURLConnection)
         try {
             connection.requestMethod = method
-            connection.connectTimeout = 12000
-            connection.readTimeout = 12000
+            // Render free instances can sleep between requests. Allow time for a cold start
+            // instead of failing the user's request after only 12 seconds.
+            connection.connectTimeout = 90000
+            connection.readTimeout = 90000
             connection.setRequestProperty("Accept", "application/json")
             token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
             if (body != null) {
@@ -39,6 +42,8 @@ object MovnetApi {
                 throw IllegalStateException(friendly)
             }
             response
+        } catch (e: SocketTimeoutException) {
+            throw IllegalStateException("Сервер MOVNET долго просыпается или не отвечает. Проверь интернет и повтори запрос.", e)
         } finally { connection.disconnect() }
     }
 
