@@ -63,9 +63,27 @@ object MovnetApi {
                 year = x.optString("year"), premium = x.optBoolean("premium"),
                 emoji = x.optString("emoji", "🎬"), description = x.optString("description"),
                 type = x.optString("type"), meta = x.optString("meta"),
-                streamUrl = x.optString("stream_url").takeIf { it.startsWith("https://") }
+                streamUrl = x.optString("stream_url").takeIf { it.startsWith("https://") },
+                id = x.optInt("id"),
+                posterUrl = x.optString("poster_url").takeIf { it.startsWith("https://") },
+                rating = x.optDouble("rating", 0.0).toFloat(),
+                ratingCount = x.optInt("rating_count")
             )
         }
+    }
+
+    suspend fun loadReviews(movieId: Int): List<MovieReview> {
+        val obj = JSONObject(request("/catalog/$movieId/reviews"))
+        val array = obj.optJSONArray("reviews") ?: JSONArray()
+        return (0 until array.length()).map { i ->
+            val item = array.getJSONObject(i)
+            MovieReview(item.optString("author", "Зритель MOVNET"), item.optInt("rating"), item.optString("text"))
+        }
+    }
+
+    suspend fun submitReview(movieId: Int, rating: Int, text: String, token: String) {
+        val body = JSONObject().put("rating", rating).put("text", text)
+        request("/catalog/$movieId/reviews", "POST", body, token)
     }
 
     suspend fun requestPasswordReset(email: String) {
