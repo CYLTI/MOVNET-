@@ -17,7 +17,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pwdlib import PasswordHash
 from pydantic import BaseModel, EmailStr, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, create_engine, select, inspect, text as sql_text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, create_engine, select, inspect, text as sql_text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 
@@ -101,6 +101,19 @@ class CatalogItem(Base):
     meta: Mapped[str] = mapped_column(String(120), default="")
     stream_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     published: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    poster_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MovieReview(Base):
+    __tablename__ = "movie_reviews"
+    __table_args__ = (UniqueConstraint("user_id", "item_id", name="uq_movie_review_user_item"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("catalog_items.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    rating: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(String(1200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class PasswordResetCode(Base):
@@ -137,6 +150,9 @@ with engine.begin() as migration:
     user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
     if "display_name" not in user_columns:
         migration.execute(sql_text("ALTER TABLE users ADD COLUMN display_name VARCHAR(80) NOT NULL DEFAULT ''"))
+    catalog_columns = {column["name"] for column in inspect(engine).get_columns("catalog_items")}
+    if "poster_url" not in catalog_columns:
+        migration.execute(sql_text("ALTER TABLE catalog_items ADD COLUMN poster_url TEXT"))
 # MOVNET starter catalogue: openly licensed Blender Foundation films.
 # Each entry is independently playable and carries attribution/license information.
 OPEN_FILMS = [
@@ -223,7 +239,13 @@ class CatalogUpsertRequest(BaseModel):
     content_type: str = Field(min_length=1, max_length=40)
     meta: str = Field(default="", max_length=120)
     stream_url: str | None = None
+    poster_url: str | None = None
     published: bool = True
+
+
+class ReviewRequest(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    text: str = Field(default="", max_length=1200)
 
 
 class RedeemRequest(BaseModel):
@@ -284,7 +306,8 @@ def get_catalog(q: str | None = None, content_type: str | None = None, genre: st
     rows = db.scalars(stmt).all()
     return [{"id": x.id, "title": x.title, "genre": x.genre, "year": x.year,
              "premium": x.premium, "emoji": x.emoji, "description": x.description,
-             "type": x.content_type, "meta": x.meta, "stream_url": None if x.premium else x.stream_url} for x in rows]
+             "type": x.content_type, "meta": x.meta, "stream_url": None if x.premium else x.stream_url, "poster_url": x.poster_url,
+             "rating": _rating_summary(db, x.id)["average"], "rating_count": _rating_summary(db, x.id)["count"]} for x in rows]
 
 
 
@@ -332,7 +355,43 @@ def get_catalog_item(item_id: int, db: Session = Depends(db_session)):
         raise HTTPException(status_code=404, detail="Content not found")
     return {"id": item.id, "title": item.title, "genre": item.genre, "year": item.year,
             "premium": item.premium, "emoji": item.emoji, "description": item.description,
-            "type": item.content_type, "meta": item.meta}
+            "type": item.content_type, "meta": item.meta, "poster_url": item.poster_url}
+
+
+def _rating_summary(db: Session, item_id: int) -> dict:
+    rows = db.scalars(select(MovieReview.rating).where(MovieReview.item_id == item_id)).all()
+    return {"average": round(sum(rows) / len(rows), 1) if rows else 0.0, "count": len(rows)}
+
+
+@app.get("/catalog/{item_id}/reviews")
+def get_movie_reviews(item_id: int, db: Session = Depends(db_session)):
+    item = db.get(CatalogItem, item_id)
+    if item is None or not item.published:
+        raise HTTPException(status_code=404, detail="Content not found")
+    rows = db.scalars(select(MovieReview).where(MovieReview.item_id == item_id).order_by(MovieReview.updated_at.desc()).limit(100)).all()
+    users = {u.id: u.display_name or "Зритель MOVNET" for u in db.scalars(select(User).where(User.id.in_([r.user_id for r in rows]))).all()} if rows else {}
+    summary = _rating_summary(db, item_id)
+    return {"average": summary["average"], "count": summary["count"],
+            "reviews": [{"id": r.id, "author": users.get(r.user_id, "Зритель MOVNET"),
+                         "rating": r.rating, "text": r.text, "created_at": r.updated_at}
+                        for r in rows]}
+
+
+@app.post("/catalog/{item_id}/reviews")
+def submit_movie_review(item_id: int, body: ReviewRequest, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    item = db.get(CatalogItem, item_id)
+    if item is None or not item.published:
+        raise HTTPException(status_code=404, detail="Content not found")
+    review = db.scalar(select(MovieReview).where(MovieReview.item_id == item_id, MovieReview.user_id == user.id))
+    now = datetime.now(timezone.utc)
+    if review is None:
+        review = MovieReview(item_id=item_id, user_id=user.id, rating=body.rating, text=body.text.strip(), created_at=now, updated_at=now)
+        db.add(review)
+    else:
+        review.rating, review.text, review.updated_at = body.rating, body.text.strip(), now
+    db.commit()
+    return {"ok": True, **_rating_summary(db, item_id)}
+
 
 @app.get("/health")
 def health():
