@@ -98,6 +98,7 @@ fun MovnetApp() {
     var accountName by remember { mutableStateOf("") }
     var accountCreatedAt by remember { mutableStateOf("") }
     var accountPlan by remember { mutableStateOf("Free") }
+    var accountIsCreator by remember { mutableStateOf(false) }
     var authToken by remember { mutableStateOf(preferences.getString("access_token", null)) }
     var loggedIn by remember { mutableStateOf(authToken != null) }
     var catalogItems by remember { mutableStateOf(openLicensedFallback) }
@@ -119,6 +120,7 @@ fun MovnetApp() {
                 accountCreatedAt = profile.optString("created_at")
                 val entitlement = MovnetApi.loadEntitlements(token)
                 accountPlan = if (entitlement.optBoolean("active")) entitlement.optString("plan", "Premium") else "Free"
+                accountIsCreator = entitlement.optBoolean("is_creator", false)
             }
             catch (e: Exception) { if (e.message?.contains("Invalid or expired token", true) == true || e.message?.contains("Account not found", true) == true) { preferences.edit().remove("access_token").apply(); authToken = null; loggedIn = false } }
         }
@@ -145,7 +147,7 @@ fun MovnetApp() {
                 playingMovie != null -> PlayerScreen(movie = playingMovie!!, onBack = { playingMovie = null })
                 showAccount -> AccountScreen(
                     email = accountEmail, displayName = accountName, createdAt = accountCreatedAt,
-                    plan = accountPlan, loggedIn = loggedIn,
+                    plan = accountPlan, loggedIn = loggedIn, isCreator = accountIsCreator,
                     onEmail = { accountEmail = it }, onDisplayName = { accountName = it },
                     onRequestPasswordReset = { email -> MovnetApi.requestPasswordReset(email) },
                     onResetPassword = { email, code, newPassword -> MovnetApi.confirmPasswordReset(email, code, newPassword) },
@@ -161,7 +163,7 @@ fun MovnetApp() {
                     },
                     onLogout = {
                         preferences.edit().remove("access_token").apply()
-                        authToken = null; loggedIn = false; accountEmail = ""; accountName = ""; accountCreatedAt = ""; accountPlan = "Free"
+                        authToken = null; loggedIn = false; accountEmail = ""; accountName = ""; accountCreatedAt = ""; accountPlan = "Free"; accountIsCreator = false
                     },
                     onBack = { showAccount = false }
                 )
@@ -853,7 +855,7 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
 }
 @Composable
 fun AccountScreen(
-    email: String, displayName: String, createdAt: String, plan: String, loggedIn: Boolean,
+    email: String, displayName: String, createdAt: String, plan: String, loggedIn: Boolean, isCreator: Boolean,
     onEmail: (String) -> Unit, onDisplayName: (String) -> Unit,
     onSubmit: suspend (String, String, String, Boolean) -> Unit,
     onRequestPasswordReset: suspend (String) -> Unit,
@@ -901,6 +903,7 @@ fun AccountScreen(
                     Text(displayName.ifBlank { "Пользователь MOVNET" }, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Text(email, color = Muted, fontSize = 12.sp)
                     Text("Аккаунт активен", color = Color(0xFF65D6A2), fontSize = 11.sp)
+                    if (isCreator) Text("✦ СОЗДАТЕЛЬ MOVNET", color = Color(0xFFFFC857), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
                 }
             }
             Card(
