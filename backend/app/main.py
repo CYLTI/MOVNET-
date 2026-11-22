@@ -445,6 +445,9 @@ def _send_password_reset_email(recipient: str, code: str) -> None:
             "Authorization": f"Bearer {settings.resend_api_key}",
             "Content-Type": "application/json",
             "Accept": "application/json",
+            # Identify the service clearly; urllib's default Python-urllib UA can
+            # be rejected by edge bot-protection rules on some outbound IPs.
+            "User-Agent": "MOVNET-API/0.12 (password-reset; contact: support@movnet.app)",
         },
         method="POST",
     )
