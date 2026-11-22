@@ -116,6 +116,14 @@ object MovnetApi {
         return JSONObject(request("/social/chats/$friendUserId/messages", "POST", payload, token))
     }
 
+    suspend fun sendCallSignal(roomId: Int, recipientUserId: Int, kind: String, payload: String, token: String): JSONObject {
+        val body = JSONObject().put("recipient_user_id", recipientUserId).put("kind", kind).put("payload", payload)
+        return JSONObject(request("/watch/rooms/$roomId/call/signals", "POST", body, token))
+    }
+
+    suspend fun loadCallSignals(roomId: Int, afterId: Int, token: String): JSONArray =
+        JSONArray(request("/watch/rooms/$roomId/call/signals?after_id=$afterId", token = token))
+
     suspend fun acceptFriendRequest(requestId: Int, token: String) {
         request("/social/friend-requests/$requestId/accept", "POST", JSONObject(), token)
     }
