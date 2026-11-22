@@ -108,6 +108,14 @@ object MovnetApi {
 
     suspend fun loadFriendRequests(token: String): JSONArray = JSONArray(request("/social/friend-requests", token = token))
 
+    suspend fun loadDirectMessages(friendUserId: Int, afterId: Int, token: String): JSONArray =
+        JSONArray(request("/social/chats/$friendUserId/messages?after_id=$afterId", token = token))
+
+    suspend fun sendDirectMessage(friendUserId: Int, body: String, token: String): JSONObject {
+        val payload = JSONObject().put("body", body)
+        return JSONObject(request("/social/chats/$friendUserId/messages", "POST", payload, token))
+    }
+
     suspend fun acceptFriendRequest(requestId: Int, token: String) {
         request("/social/friend-requests/$requestId/accept", "POST", JSONObject(), token)
     }
