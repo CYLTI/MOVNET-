@@ -167,6 +167,15 @@ class WatchRoomMember(Base):
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class WatchRoomMessage(Base):
+    __tablename__ = "watch_room_messages"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    room_id: Mapped[int] = mapped_column(ForeignKey("watch_rooms.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    body: Mapped[str] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class PasswordResetCode(Base):
     __tablename__ = "password_reset_codes"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -331,6 +340,10 @@ class WatchRoomStateUpdate(BaseModel):
     playback_position: int = Field(ge=0)
     is_playing: bool
     expected_version: int = Field(ge=0)
+
+
+class WatchRoomMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=1000)
 
 
 class PasswordResetRequest(BaseModel):
@@ -791,6 +804,29 @@ def get_watch_room(room_id: int, user: User = Depends(current_user), db: Session
             "members": [{"public_id": users[m.user_id].public_id,
                          "display_name": users[m.user_id].display_name or "Пользователь"}
                         for m in members if m.user_id in users]}
+
+
+@app.get("/watch/rooms/{room_id}/messages")
+def get_watch_room_messages(room_id: int, after_id: int = 0, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    if not _room_member(db, room_id, user.id):
+        raise HTTPException(status_code=404, detail="Комната не найдена.")
+    rows = db.scalars(select(WatchRoomMessage).where(
+        WatchRoomMessage.room_id == room_id, WatchRoomMessage.id > after_id
+    ).order_by(WatchRoomMessage.id.asc()).limit(100)).all()
+    users = {u.id: u for u in db.scalars(select(User).where(User.id.in_([m.user_id for m in rows]))).all()} if rows else {}
+    return [{"id": m.id, "sender_id": m.user_id,
+             "display_name": users[m.user_id].display_name or "Пользователь" if m.user_id in users else "Пользователь",
+             "body": m.body, "created_at": m.created_at} for m in rows]
+
+
+@app.post("/watch/rooms/{room_id}/messages", status_code=201)
+def send_watch_room_message(room_id: int, body: WatchRoomMessageCreate, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    if not _room_member(db, room_id, user.id):
+        raise HTTPException(status_code=404, detail="Комната не найдена.")
+    message = WatchRoomMessage(room_id=room_id, user_id=user.id, body=body.body.strip())
+    db.add(message); db.commit(); db.refresh(message)
+    return {"id": message.id, "sender_id": user.id, "display_name": user.display_name or "Пользователь",
+            "body": message.body, "created_at": message.created_at}
 
 
 @app.put("/watch/rooms/{room_id}/state")
