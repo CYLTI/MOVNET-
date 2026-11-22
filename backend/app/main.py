@@ -176,6 +176,17 @@ class WatchRoomMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class WatchCallSignal(Base):
+    __tablename__ = "watch_call_signals"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    room_id: Mapped[int] = mapped_column(ForeignKey("watch_rooms.id"), index=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    payload: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class PasswordResetCode(Base):
     __tablename__ = "password_reset_codes"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -344,6 +355,12 @@ class WatchRoomStateUpdate(BaseModel):
 
 class WatchRoomMessageCreate(BaseModel):
     body: str = Field(min_length=1, max_length=1000)
+
+
+class WatchCallSignalCreate(BaseModel):
+    recipient_user_id: int = Field(gt=0)
+    kind: str = Field(pattern="^(offer|answer|ice|hangup)$")
+    payload: str = Field(default="", max_length=12000)
 
 
 class PasswordResetRequest(BaseModel):
@@ -804,6 +821,30 @@ def get_watch_room(room_id: int, user: User = Depends(current_user), db: Session
             "members": [{"public_id": users[m.user_id].public_id,
                          "display_name": users[m.user_id].display_name or "Пользователь"}
                         for m in members if m.user_id in users]}
+
+
+@app.post("/watch/rooms/{room_id}/call/signals", status_code=201)
+def send_watch_call_signal(room_id: int, body: WatchCallSignalCreate, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    if not _room_member(db, room_id, user.id) or not _room_member(db, room_id, body.recipient_user_id):
+        raise HTTPException(status_code=404, detail="Участник звонка не найден в этой комнате.")
+    if body.recipient_user_id == user.id:
+        raise HTTPException(status_code=400, detail="Нельзя отправить сигнал самому себе.")
+    signal = WatchCallSignal(room_id=room_id, sender_id=user.id, recipient_id=body.recipient_user_id,
+                             kind=body.kind, payload=body.payload)
+    db.add(signal); db.commit(); db.refresh(signal)
+    return {"id": signal.id, "ok": True}
+
+
+@app.get("/watch/rooms/{room_id}/call/signals")
+def get_watch_call_signals(room_id: int, after_id: int = 0, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    if not _room_member(db, room_id, user.id):
+        raise HTTPException(status_code=404, detail="Комната не найдена.")
+    rows = db.scalars(select(WatchCallSignal).where(
+        WatchCallSignal.room_id == room_id, WatchCallSignal.recipient_id == user.id,
+        WatchCallSignal.id > after_id
+    ).order_by(WatchCallSignal.id.asc()).limit(100)).all()
+    return [{"id": x.id, "sender_user_id": x.sender_id, "kind": x.kind,
+             "payload": x.payload, "created_at": x.created_at} for x in rows]
 
 
 @app.get("/watch/rooms/{room_id}/messages")
