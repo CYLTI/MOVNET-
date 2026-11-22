@@ -99,6 +99,7 @@ fun MovnetApp() {
     var accountCreatedAt by remember { mutableStateOf("") }
     var accountPlan by remember { mutableStateOf("Free") }
     var accountIsCreator by remember { mutableStateOf(false) }
+    var socialPublicId by remember { mutableStateOf("") }
     var authToken by remember { mutableStateOf(preferences.getString("access_token", null)) }
     var loggedIn by remember { mutableStateOf(authToken != null) }
     var catalogItems by remember { mutableStateOf(openLicensedFallback) }
@@ -115,6 +116,7 @@ fun MovnetApp() {
         if (token != null) {
             try {
                 val profile = MovnetApi.loadProfile(token)
+                socialPublicId = MovnetApi.loadSocialProfile(token).optString("public_id")
                 accountEmail = profile.optString("email")
                 accountName = profile.optString("display_name")
                 accountCreatedAt = profile.optString("created_at")
@@ -147,7 +149,7 @@ fun MovnetApp() {
                 playingMovie != null -> PlayerScreen(movie = playingMovie!!, onBack = { playingMovie = null })
                 showAccount -> AccountScreen(
                     email = accountEmail, displayName = accountName, createdAt = accountCreatedAt,
-                    plan = accountPlan, loggedIn = loggedIn, isCreator = accountIsCreator,
+                    plan = accountPlan, loggedIn = loggedIn, isCreator = accountIsCreator, publicId = socialPublicId,
                     onEmail = { accountEmail = it }, onDisplayName = { accountName = it },
                     onRequestPasswordReset = { email -> MovnetApi.requestPasswordReset(email) },
                     onResetPassword = { email, code, newPassword -> MovnetApi.confirmPasswordReset(email, code, newPassword) },
@@ -163,7 +165,7 @@ fun MovnetApp() {
                     },
                     onLogout = {
                         preferences.edit().remove("access_token").apply()
-                        authToken = null; loggedIn = false; accountEmail = ""; accountName = ""; accountCreatedAt = ""; accountPlan = "Free"; accountIsCreator = false
+                        authToken = null; loggedIn = false; accountEmail = ""; accountName = ""; accountCreatedAt = ""; accountPlan = "Free"; accountIsCreator = false; socialPublicId = ""
                     },
                     onBack = { showAccount = false }
                 )
@@ -855,7 +857,7 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
 }
 @Composable
 fun AccountScreen(
-    email: String, displayName: String, createdAt: String, plan: String, loggedIn: Boolean, isCreator: Boolean,
+    email: String, displayName: String, createdAt: String, plan: String, loggedIn: Boolean, isCreator: Boolean, publicId: String,
     onEmail: (String) -> Unit, onDisplayName: (String) -> Unit,
     onSubmit: suspend (String, String, String, Boolean) -> Unit,
     onRequestPasswordReset: suspend (String) -> Unit,
@@ -919,6 +921,18 @@ fun AccountScreen(
                         color = Muted, fontSize = 12.sp)
                 }
             }
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("ТВОЙ MOVNET ID", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(publicId.ifBlank { "Загружаем…" }, color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 2.sp)
+                    Text("Поделись ID с другом, чтобы он мог отправить заявку в друзья.", color = Muted, fontSize = 12.sp)
+                }
+            }
+            var friendIdInput by remember { mutableStateOf("") }
+            var friendActionMessage by remember { mutableStateOf<String?>(null) }
+            var friendBusy by remember { mutableStateOf(false) }
+            var friends by remember { mutableStateOf<List<String>>(emptyList()) }
+            var incoming by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
             Text("Данные профиля", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             OutlinedTextField(
                 value = displayName, onValueChange = { onDisplayName(it); saved = false },
