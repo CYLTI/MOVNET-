@@ -2,7 +2,7 @@ name: Build MOVNET APK
 
 on:
   push:
-    branches: [main, master, "release/**"]
+    branches: [main, master, "release/**", "feature/watch-together-foundation"]
   workflow_dispatch:
 
 permissions:
@@ -59,7 +59,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MOVNET-0.12.0-APK
+          name: MOVNET-0.13.0-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
