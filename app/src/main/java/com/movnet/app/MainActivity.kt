@@ -1025,7 +1025,7 @@ fun AccountScreen(
                                         MovnetApi.acceptFriendRequest(requestId, authToken!!)
                                         requestRows = requestRows.filterNot { it.first == requestId }
                                         val json = MovnetApi.loadFriends(authToken)
-                                        friendRows = (0 until json.length()).map { i -> val item = json.getJSONObject(i); item.optString("display_name") to item.optString("public_id") }
+                                        friendRows = (0 until json.length()).map { i -> val item = json.getJSONObject(i); Triple(item.optString("display_name"), item.optString("public_id"), item.optInt("user_id")) }
                                         friendStatus = "Вы теперь друзья!"
                                     } catch (e: Exception) { friendStatus = e.message ?: "Ошибка принятия заявки" }
                                 } }) { Text("Принять", color = Accent) }
