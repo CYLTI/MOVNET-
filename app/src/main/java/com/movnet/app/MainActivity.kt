@@ -928,11 +928,6 @@ fun AccountScreen(
                     Text("Поделись ID с другом, чтобы он мог отправить заявку в друзья.", color = Muted, fontSize = 12.sp)
                 }
             }
-            var friendIdInput by remember { mutableStateOf("") }
-            var friendActionMessage by remember { mutableStateOf<String?>(null) }
-            var friendBusy by remember { mutableStateOf(false) }
-            var friends by remember { mutableStateOf<List<String>>(emptyList()) }
-            var incoming by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
             Text("Данные профиля", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             OutlinedTextField(
                 value = displayName, onValueChange = { onDisplayName(it); saved = false },
