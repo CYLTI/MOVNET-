@@ -74,6 +74,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(80), default="")
+    public_id: Mapped[str | None] = mapped_column(String(12), unique=True, index=True, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(512))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     entitlement: Mapped["Entitlement | None"] = relationship(back_populates="user", uselist=False)
@@ -116,6 +117,76 @@ class MovieReview(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class FriendRequest(Base):
+    __tablename__ = "friend_requests"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    receiver_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class Friendship(Base):
+    __tablename__ = "friendships"
+    __table_args__ = (UniqueConstraint("user_id", "friend_id", name="uq_friendship_pair"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    friend_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class DirectMessage(Base):
+    __tablename__ = "direct_messages"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    receiver_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    body: Mapped[str] = mapped_column(String(2000))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class WatchRoom(Base):
+    __tablename__ = "watch_rooms"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(12), unique=True, index=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("catalog_items.id"), index=True)
+    playback_position: Mapped[int] = mapped_column(Integer, default=0)
+    is_playing: Mapped[bool] = mapped_column(Boolean, default=False)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class WatchRoomMember(Base):
+    __tablename__ = "watch_room_members"
+    __table_args__ = (UniqueConstraint("room_id", "user_id", name="uq_watch_room_member"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    room_id: Mapped[int] = mapped_column(ForeignKey("watch_rooms.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class WatchRoomMessage(Base):
+    __tablename__ = "watch_room_messages"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    room_id: Mapped[int] = mapped_column(ForeignKey("watch_rooms.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    body: Mapped[str] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class WatchCallSignal(Base):
+    __tablename__ = "watch_call_signals"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    room_id: Mapped[int] = mapped_column(ForeignKey("watch_rooms.id"), index=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    payload: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class PasswordResetCode(Base):
     __tablename__ = "password_reset_codes"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -150,6 +221,14 @@ with engine.begin() as migration:
     user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
     if "display_name" not in user_columns:
         migration.execute(sql_text("ALTER TABLE users ADD COLUMN display_name VARCHAR(80) NOT NULL DEFAULT ''"))
+    if "public_id" not in user_columns:
+        migration.execute(sql_text("ALTER TABLE users ADD COLUMN public_id VARCHAR(12)"))
+    # Backfill stable public MOVNET IDs for accounts created before Watch Together.
+    legacy_users = migration.execute(sql_text("SELECT id FROM users WHERE public_id IS NULL OR public_id = ''")).fetchall()
+    for legacy_user in legacy_users:
+        migration.execute(sql_text("UPDATE users SET public_id = :public_id WHERE id = :user_id"),
+                          {"public_id": secrets.token_hex(4).upper(), "user_id": legacy_user[0]})
+    migration.execute(sql_text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_public_id ON users (public_id)"))
     catalog_columns = {column["name"] for column in inspect(engine).get_columns("catalog_items")}
     if "poster_url" not in catalog_columns:
         migration.execute(sql_text("ALTER TABLE catalog_items ADD COLUMN poster_url TEXT"))
@@ -250,6 +329,38 @@ class ReviewRequest(BaseModel):
 
 class RedeemRequest(BaseModel):
     code: str = Field(min_length=12, max_length=128)
+
+
+class FriendRequestCreate(BaseModel):
+    target_public_id: str = Field(min_length=6, max_length=12, pattern=r"^[A-Fa-f0-9]+$")
+
+
+class DirectMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+
+class WatchRoomCreate(BaseModel):
+    item_id: int = Field(gt=0)
+
+
+class WatchRoomJoin(BaseModel):
+    code: str = Field(min_length=6, max_length=12, pattern=r"^[A-Za-z0-9]+$")
+
+
+class WatchRoomStateUpdate(BaseModel):
+    playback_position: int = Field(ge=0)
+    is_playing: bool
+    expected_version: int = Field(ge=0)
+
+
+class WatchRoomMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=1000)
+
+
+class WatchCallSignalCreate(BaseModel):
+    recipient_user_id: int = Field(gt=0)
+    kind: str = Field(pattern="^(offer|answer|ice|hangup)$")
+    payload: str = Field(default="", max_length=12000)
 
 
 class PasswordResetRequest(BaseModel):
@@ -403,7 +514,7 @@ def register(body: RegisterRequest, db: Session = Depends(db_session)):
     email = body.email.lower()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(status_code=409, detail="Email already registered")
-    user = User(email=email, display_name=body.display_name.strip(), password_hash=password_hash.hash(body.password))
+    user = User(email=email, display_name=body.display_name.strip(), public_id=secrets.token_hex(4).upper(), password_hash=password_hash.hash(body.password))
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -550,6 +661,247 @@ def recover_account(body: AccountRecoveryRequest, x_recovery_key: str | None = H
 @app.get("/me")
 def me(user: User = Depends(current_user)):
     return {"id": user.id, "email": user.email, "display_name": user.display_name, "created_at": user.created_at}
+
+
+def _is_premium_user(user: User, db: Session) -> bool:
+    creator_emails = {value.strip().lower() for value in settings.creator_emails.split(",") if value.strip()}
+    if user.email.lower() in creator_emails:
+        return True
+    entitlement = db.scalar(select(Entitlement).where(Entitlement.user_id == user.id))
+    return bool(entitlement and utc_aware(entitlement.expires_at) > datetime.now(timezone.utc))
+
+
+def _are_friends(db: Session, first_id: int, second_id: int) -> bool:
+    return db.scalar(select(Friendship.id).where(
+        Friendship.user_id == first_id, Friendship.friend_id == second_id
+    )) is not None
+
+
+def _room_member(db: Session, room_id: int, user_id: int) -> bool:
+    return db.scalar(select(WatchRoomMember.id).where(
+        WatchRoomMember.room_id == room_id, WatchRoomMember.user_id == user_id
+    )) is not None
+
+
+@app.get("/social/me")
+def social_me(user: User = Depends(current_user)):
+    return {"public_id": user.public_id, "display_name": user.display_name}
+
+
+@app.post("/social/friend-requests", status_code=201)
+def send_friend_request(body: FriendRequestCreate, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    target = db.scalar(select(User).where(User.public_id == body.target_public_id.upper()))
+    if target is None:
+        raise HTTPException(status_code=404, detail="Пользователь с таким MOVNET ID не найден.")
+    if target.id == user.id:
+        raise HTTPException(status_code=400, detail="Нельзя добавить самого себя.")
+    if _are_friends(db, user.id, target.id):
+        raise HTTPException(status_code=409, detail="Вы уже друзья.")
+    existing = db.scalar(select(FriendRequest).where(
+        FriendRequest.sender_id == user.id, FriendRequest.receiver_id == target.id,
+        FriendRequest.status == "pending"
+    ))
+    if existing:
+        raise HTTPException(status_code=409, detail="Заявка уже отправлена.")
+    reverse = db.scalar(select(FriendRequest).where(
+        FriendRequest.sender_id == target.id, FriendRequest.receiver_id == user.id,
+        FriendRequest.status == "pending"
+    ))
+    if reverse:
+        reverse.status = "accepted"
+        db.add(Friendship(user_id=user.id, friend_id=target.id))
+        db.add(Friendship(user_id=target.id, friend_id=user.id))
+        db.commit()
+        return {"status": "accepted", "message": "Вы теперь друзья."}
+    db.add(FriendRequest(sender_id=user.id, receiver_id=target.id))
+    db.commit()
+    return {"status": "pending", "message": "Заявка отправлена."}
+
+
+@app.get("/social/friend-requests")
+def list_friend_requests(user: User = Depends(current_user), db: Session = Depends(db_session)):
+    rows = db.scalars(select(FriendRequest).where(
+        FriendRequest.receiver_id == user.id, FriendRequest.status == "pending"
+    ).order_by(FriendRequest.created_at.desc())).all()
+    senders = {u.id: u for u in db.scalars(select(User).where(User.id.in_([r.sender_id for r in rows]))).all()} if rows else {}
+    return [{"request_id": r.id, "public_id": senders[r.sender_id].public_id,
+             "display_name": senders[r.sender_id].display_name or "Пользователь"}
+            for r in rows if r.sender_id in senders]
+
+
+@app.post("/social/friend-requests/{request_id}/accept")
+def accept_friend_request(request_id: int, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    request_row = db.get(FriendRequest, request_id)
+    if request_row is None or request_row.receiver_id != user.id or request_row.status != "pending":
+        raise HTTPException(status_code=404, detail="Заявка не найдена.")
+    request_row.status = "accepted"
+    if not _are_friends(db, user.id, request_row.sender_id):
+        db.add(Friendship(user_id=user.id, friend_id=request_row.sender_id))
+        db.add(Friendship(user_id=request_row.sender_id, friend_id=user.id))
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/social/friends")
+def list_friends(user: User = Depends(current_user), db: Session = Depends(db_session)):
+    links = db.scalars(select(Friendship).where(Friendship.user_id == user.id)).all()
+    ids = [x.friend_id for x in links]
+    friends = db.scalars(select(User).where(User.id.in_(ids))).all() if ids else []
+    return [{"user_id": f.id, "public_id": f.public_id, "display_name": f.display_name or "Пользователь"} for f in friends]
+
+
+@app.get("/social/chats/{friend_user_id}/messages")
+def get_direct_messages(friend_user_id: int, after_id: int = 0, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    if not _are_friends(db, user.id, friend_user_id):
+        raise HTTPException(status_code=403, detail="Чат доступен только друзьям.")
+    rows = db.scalars(select(DirectMessage).where(
+        ((DirectMessage.sender_id == user.id) & (DirectMessage.receiver_id == friend_user_id)) |
+        ((DirectMessage.sender_id == friend_user_id) & (DirectMessage.receiver_id == user.id)),
+        DirectMessage.id > after_id
+    ).order_by(DirectMessage.id.asc()).limit(100)).all()
+    return [{"id": m.id, "sender_id": m.sender_id, "body": m.body, "created_at": m.created_at} for m in rows]
+
+
+@app.post("/social/chats/{friend_user_id}/messages", status_code=201)
+def send_direct_message(friend_user_id: int, body: DirectMessageCreate, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    if not _are_friends(db, user.id, friend_user_id):
+        raise HTTPException(status_code=403, detail="Чат доступен только друзьям.")
+    if friend_user_id == user.id:
+        raise HTTPException(status_code=400, detail="Нельзя отправить сообщение самому себе.")
+    message = DirectMessage(sender_id=user.id, receiver_id=friend_user_id, body=body.body.strip())
+    db.add(message); db.commit(); db.refresh(message)
+    return {"id": message.id, "sender_id": message.sender_id, "body": message.body, "created_at": message.created_at}
+
+
+@app.post("/watch/rooms", status_code=201)
+def create_watch_room(body: WatchRoomCreate, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    item = db.get(CatalogItem, body.item_id)
+    if item is None or not item.published or not item.stream_url:
+        raise HTTPException(status_code=404, detail="Фильм пока недоступен для просмотра.")
+    if item.premium and not _is_premium_user(user, db):
+        raise HTTPException(status_code=403, detail="Для этого фильма нужна Premium-подписка.")
+    code = secrets.token_hex(4).upper()
+    room = WatchRoom(code=code, owner_id=user.id, item_id=item.id)
+    db.add(room); db.flush()
+    db.add(WatchRoomMember(room_id=room.id, user_id=user.id))
+    db.commit(); db.refresh(room)
+    return {"room_id": room.id, "code": room.code, "item_id": room.item_id, "version": room.version}
+
+
+@app.post("/watch/rooms/join")
+def join_watch_room(body: WatchRoomJoin, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    room = db.scalar(select(WatchRoom).where(WatchRoom.code == body.code.upper(), WatchRoom.active.is_(True)))
+    if room is None:
+        raise HTTPException(status_code=404, detail="Комната не найдена или уже закрыта.")
+    item = db.get(CatalogItem, room.item_id)
+    if item is None or not item.published or not item.stream_url:
+        raise HTTPException(status_code=404, detail="Фильм больше недоступен.")
+    if item.premium and not _is_premium_user(user, db):
+        raise HTTPException(status_code=403, detail="Для этого фильма обоим участникам нужна Premium-подписка.")
+    if not _room_member(db, room.id, user.id):
+        current_members = db.scalars(select(WatchRoomMember.id).where(WatchRoomMember.room_id == room.id)).all()
+        if len(current_members) >= 2:
+            raise HTTPException(status_code=409, detail="Комната рассчитана максимум на двух участников.")
+        db.add(WatchRoomMember(room_id=room.id, user_id=user.id)); db.commit()
+    return {"room_id": room.id, "code": room.code, "item_id": room.item_id,
+            "version": room.version, "playback_position": room.playback_position, "is_playing": room.is_playing}
+
+
+@app.get("/watch/rooms/{room_id}")
+def get_watch_room(room_id: int, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    room = db.get(WatchRoom, room_id)
+    if room is None or not room.active or not _room_member(db, room.id, user.id):
+        raise HTTPException(status_code=404, detail="Комната не найдена.")
+    members = db.scalars(select(WatchRoomMember).where(WatchRoomMember.room_id == room.id)).all()
+    users = {u.id: u for u in db.scalars(select(User).where(User.id.in_([m.user_id for m in members]))).all()}
+    item = db.get(CatalogItem, room.item_id)
+    return {"room_id": room.id, "code": room.code, "item_id": room.item_id,
+            "movie_title": item.title if item else "", "playback_position": room.playback_position,
+            "is_playing": room.is_playing, "version": room.version,
+            "members": [{"public_id": users[m.user_id].public_id,
+                         "display_name": users[m.user_id].display_name or "Пользователь"}
+                        for m in members if m.user_id in users]}
+
+
+@app.post("/watch/rooms/{room_id}/call/signals", status_code=201)
+def send_watch_call_signal(room_id: int, body: WatchCallSignalCreate, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    if not _room_member(db, room_id, user.id) or not _room_member(db, room_id, body.recipient_user_id):
+        raise HTTPException(status_code=404, detail="Участник звонка не найден в этой комнате.")
+    if body.recipient_user_id == user.id:
+        raise HTTPException(status_code=400, detail="Нельзя отправить сигнал самому себе.")
+    signal = WatchCallSignal(room_id=room_id, sender_id=user.id, recipient_id=body.recipient_user_id,
+                             kind=body.kind, payload=body.payload)
+    db.add(signal); db.commit(); db.refresh(signal)
+    return {"id": signal.id, "ok": True}
+
+
+@app.get("/watch/rooms/{room_id}/call/signals")
+def get_watch_call_signals(room_id: int, after_id: int = 0, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    if not _room_member(db, room_id, user.id):
+        raise HTTPException(status_code=404, detail="Комната не найдена.")
+    rows = db.scalars(select(WatchCallSignal).where(
+        WatchCallSignal.room_id == room_id, WatchCallSignal.recipient_id == user.id,
+        WatchCallSignal.id > after_id
+    ).order_by(WatchCallSignal.id.asc()).limit(100)).all()
+    return [{"id": x.id, "sender_user_id": x.sender_id, "kind": x.kind,
+             "payload": x.payload, "created_at": x.created_at} for x in rows]
+
+
+@app.get("/watch/rooms/{room_id}/messages")
+def get_watch_room_messages(room_id: int, after_id: int = 0, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    if not _room_member(db, room_id, user.id):
+        raise HTTPException(status_code=404, detail="Комната не найдена.")
+    rows = db.scalars(select(WatchRoomMessage).where(
+        WatchRoomMessage.room_id == room_id, WatchRoomMessage.id > after_id
+    ).order_by(WatchRoomMessage.id.asc()).limit(100)).all()
+    users = {u.id: u for u in db.scalars(select(User).where(User.id.in_([m.user_id for m in rows]))).all()} if rows else {}
+    return [{"id": m.id, "sender_id": m.user_id,
+             "display_name": users[m.user_id].display_name or "Пользователь" if m.user_id in users else "Пользователь",
+             "body": m.body, "created_at": m.created_at} for m in rows]
+
+
+@app.post("/watch/rooms/{room_id}/messages", status_code=201)
+def send_watch_room_message(room_id: int, body: WatchRoomMessageCreate, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    if not _room_member(db, room_id, user.id):
+        raise HTTPException(status_code=404, detail="Комната не найдена.")
+    message = WatchRoomMessage(room_id=room_id, user_id=user.id, body=body.body.strip())
+    db.add(message); db.commit(); db.refresh(message)
+    return {"id": message.id, "sender_id": user.id, "display_name": user.display_name or "Пользователь",
+            "body": message.body, "created_at": message.created_at}
+
+
+@app.put("/watch/rooms/{room_id}/state")
+def update_watch_room_state(room_id: int, body: WatchRoomStateUpdate, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    room = db.get(WatchRoom, room_id)
+    if room is None or not room.active or not _room_member(db, room.id, user.id):
+        raise HTTPException(status_code=404, detail="Комната не найдена.")
+    if body.expected_version != room.version:
+        raise HTTPException(status_code=409, detail="Состояние комнаты уже обновилось. Синхронизируйтесь и повторите.")
+    room.playback_position = body.playback_position
+    room.is_playing = body.is_playing
+    room.version += 1
+    room.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"version": room.version, "playback_position": room.playback_position,
+            "is_playing": room.is_playing, "updated_by": user.public_id}
+
+
+@app.post("/watch/rooms/{room_id}/leave")
+def leave_watch_room(room_id: int, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    room = db.get(WatchRoom, room_id)
+    if room is None or not _room_member(db, room.id, user.id):
+        raise HTTPException(status_code=404, detail="Комната не найдена.")
+    if room.owner_id == user.id:
+        room.active = False
+    db.query(WatchRoomMember).filter(WatchRoomMember.room_id == room.id, WatchRoomMember.user_id == user.id).delete()
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/entitlements")
+def entitlements(user: User = Depends(current_user), db: Session = Depends(db_session)):
+    # Creator privileges are configured server-side and cannot be self-assigned by clients.
+    creator_emails = {value.strip().lower() for value in settings.creator_emails.split(",") if value.strip()}
 
 
 @app.put("/me")
