@@ -208,6 +208,7 @@ with engine.begin() as migration:
     for legacy_user in legacy_users:
         migration.execute(sql_text("UPDATE users SET public_id = :public_id WHERE id = :user_id"),
                           {"public_id": secrets.token_hex(4).upper(), "user_id": legacy_user[0]})
+    migration.execute(sql_text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_public_id ON users (public_id)"))
     catalog_columns = {column["name"] for column in inspect(engine).get_columns("catalog_items")}
     if "poster_url" not in catalog_columns:
         migration.execute(sql_text("ALTER TABLE catalog_items ADD COLUMN poster_url TEXT"))
@@ -768,8 +769,8 @@ def join_watch_room(body: WatchRoomJoin, user: User = Depends(current_user), db:
     if item.premium and not _is_premium_user(user, db):
         raise HTTPException(status_code=403, detail="Для этого фильма обоим участникам нужна Premium-подписка.")
     if not _room_member(db, room.id, user.id):
-        count = db.scalar(select(WatchRoomMember.id).where(WatchRoomMember.room_id == room.id).limit(3))
-        if count is not None:
+        current_members = db.scalars(select(WatchRoomMember.id).where(WatchRoomMember.room_id == room.id)).all()
+        if len(current_members) >= 2:
             raise HTTPException(status_code=409, detail="Комната рассчитана максимум на двух участников.")
         db.add(WatchRoomMember(room_id=room.id, user_id=user.id)); db.commit()
     return {"room_id": room.id, "code": room.code, "item_id": room.item_id,
