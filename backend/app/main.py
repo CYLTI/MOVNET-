@@ -421,66 +421,55 @@ def login(body: LoginRequest, db: Session = Depends(db_session)):
 def _send_password_reset_email(recipient: str, code: str) -> None:
     subject = "Код восстановления пароля MOVNET"
     text_body = (
-        f"Код для смены пароля MOVNET: {code}\n\n"
+        f"Код для смены пароля MOVNET: {code}\\n\\n"
         "Код действует 10 минут. Если вы не запрашивали смену пароля, просто проигнорируйте письмо."
     )
 
-    resend_error = None
-    # Try Resend over HTTPS first. If it fails, continue to configured SMTP.
-    if settings.resend_api_key:
-        payload = json.dumps({
-            "from": settings.resend_from_email,
-            "to": [recipient],
-            "subject": subject,
-            "text": text_body,
-        }).encode("utf-8")
-        request = urllib.request.Request(
-            "https://api.resend.com/emails",
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {settings.resend_api_key}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            method="POST",
+    # Render Free blocks outbound SMTP ports 25/465/587. Use the HTTPS API only.
+    if not settings.resend_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Отправка писем не настроена: на сервере отсутствует RESEND_API_KEY."
         )
-        try:
-            with urllib.request.urlopen(request, timeout=15) as response:
-                if 200 <= response.status < 300:
-                    return
-                resend_error = f"Resend returned HTTP {response.status}"
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as exc:
-            # Do not expose provider details or credentials to the client.
-            resend_error = type(exc).__name__
 
-    # SMTP fallback also works when Resend rejects an unverified sender/domain.
-    if all([settings.smtp_host, settings.smtp_username, settings.smtp_password, settings.smtp_from_email]):
-        message = EmailMessage()
-        message["Subject"] = subject
-        message["From"] = settings.smtp_from_email
-        message["To"] = recipient
-        message.set_content(text_body)
+    payload = json.dumps({
+        "from": settings.resend_from_email,
+        "to": [recipient],
+        "subject": subject,
+        "text": text_body,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {settings.resend_api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            if 200 <= response.status < 300:
+                return
+            raise HTTPException(status_code=502, detail="Почтовый сервис не принял письмо.")
+    except urllib.error.HTTPError as exc:
+        # Log provider response for diagnosis, but never log API keys or reset codes.
         try:
-            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
-                server.starttls()
-                server.login(settings.smtp_username, settings.smtp_password)
-                server.send_message(message)
-            return
-        except Exception as exc:
-            raise HTTPException(
-                status_code=502,
-                detail="Не удалось отправить письмо через доступные почтовые сервисы. Проверьте настройки отправителя."
-            ) from exc
-
-    if resend_error:
+            provider_message = exc.read(1000).decode("utf-8", errors="replace")
+        except Exception:
+            provider_message = ""
+        print(f"RESEND_HTTP_ERROR status={exc.code} response={provider_message[:1000]}")
         raise HTTPException(
             status_code=502,
-            detail="Почтовый сервис отклонил отправку. Проверьте подтверждение адреса отправителя."
-        )
-    raise HTTPException(
-        status_code=503,
-        detail="Восстановление по почте ещё не настроено на сервере."
-    )
+            detail=f"Resend отклонил отправку (HTTP {exc.code}). Проверьте API key и подтверждение отправителя."
+        ) from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        print(f"RESEND_NETWORK_ERROR type={type(exc).__name__}")
+        raise HTTPException(
+            status_code=502,
+            detail="Не удалось связаться с почтовым сервисом Resend. Повторите позже."
+        ) from exc
 
 @app.post("/auth/password/reset/request")
 def request_password_reset(body: PasswordResetRequest, db: Session = Depends(db_session)):
