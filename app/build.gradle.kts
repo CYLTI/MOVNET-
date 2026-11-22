@@ -14,8 +14,8 @@ android {
         applicationId = "com.movnet.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.13.0"
+        versionCode = 15
+        versionName = "0.14.0"
     }
 
     compileOptions {
@@ -41,5 +41,6 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
+    implementation("org.webrtc:google-webrtc:1.0.32006")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
