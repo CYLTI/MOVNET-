@@ -858,7 +858,7 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
 private data class SocialChatLine(val id: Int, val mine: Boolean, val text: String)
 
 @Composable
-private fun DirectChatDialog(friendName: String, friendId: Int, token: String, onDismiss: () -> Unit) {
+private fun DirectChatDialog(friendName: String, friendId: Int, ownUserId: Int, token: String, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     var lines by remember { mutableStateOf<List<SocialChatLine>>(emptyList()) }
     var input by remember { mutableStateOf("") }
@@ -870,7 +870,7 @@ private fun DirectChatDialog(friendName: String, friendId: Int, token: String, o
                 val data = MovnetApi.loadDirectMessages(friendId, lines.lastOrNull()?.id ?: 0, token)
                 val fresh = (0 until data.length()).map { i ->
                     val item = data.getJSONObject(i)
-                    SocialChatLine(item.optInt("id"), item.optInt("sender_id") == -1, item.optString("body"))
+                    SocialChatLine(item.optInt("id"), item.optInt("sender_id") == ownUserId, item.optString("body"))
                 }
                 if (fresh.isNotEmpty()) lines = lines + fresh
             }.onFailure { error = it.message }
@@ -903,8 +903,6 @@ private fun DirectChatDialog(friendName: String, friendId: Int, token: String, o
         dismissButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } }
     )
 }
-
-private fun Int?.orZero(): Int = this ?: 0
 
 @Composable
 fun AccountScreen(
@@ -982,16 +980,18 @@ fun AccountScreen(
             var friendIdInput by remember { mutableStateOf("") }
             var friendStatus by remember { mutableStateOf<String?>(null) }
             var friendBusy by remember { mutableStateOf(false) }
-            var friendRows by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+            var friendRows by remember { mutableStateOf<List<Triple<String, String, Int>>>(emptyList()) }
+            var ownUserId by remember { mutableIntStateOf(0) }
             var requestRows by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
             var activeChat by remember { mutableStateOf<Pair<String, Int>?>(null) }
             LaunchedEffect(authToken) {
                 val token = authToken ?: return@LaunchedEffect
                 runCatching {
+                    ownUserId = MovnetApi.loadProfile(token).optInt("id")
                     val friendsJson = MovnetApi.loadFriends(token)
                     friendRows = (0 until friendsJson.length()).map { i ->
                         val item = friendsJson.getJSONObject(i)
-                        item.optString("display_name") to item.optString("public_id")
+                        Triple(item.optString("display_name"), item.optString("public_id"), item.optInt("user_id"))
                     }
                     val requestsJson = MovnetApi.loadFriendRequests(token)
                     requestRows = (0 until requestsJson.length()).map { i ->
@@ -1034,16 +1034,16 @@ fun AccountScreen(
                     }
                     Text("МОИ ДРУЗЬЯ (${friendRows.size})", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     if (friendRows.isEmpty()) Text("Пока нет друзей. Найди знакомого по его MOVNET ID.", color = Muted, fontSize = 12.sp)
-                    friendRows.forEach { (name, id) ->
+                    friendRows.forEach { (name, id, userId) ->
                         Row(Modifier.fillMaxWidth().background(Background, RoundedCornerShape(12.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) { Text(name.ifBlank { "Пользователь MOVNET" }, fontWeight = FontWeight.SemiBold); Text(id, color = Muted, fontSize = 11.sp) }
-                            TextButton(onClick = { activeChat = name to id.toIntOrNull().orZero() }) { Text("Чат", color = Accent) }
+                            TextButton(onClick = { activeChat = name to userId }) { Text("Чат", color = Accent) }
                         }
                     }
                 }
             }
 
-            if (activeChat != null && authToken != null) DirectChatDialog(activeChat!!.first, activeChat!!.second, authToken!!, onDismiss = { activeChat = null })
+            if (activeChat != null && authToken != null) DirectChatDialog(activeChat!!.first, activeChat!!.second, ownUserId, authToken!!, onDismiss = { activeChat = null })
             Text("Данные профиля", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             OutlinedTextField(
                 value = displayName, onValueChange = { onDisplayName(it); saved = false },
