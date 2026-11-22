@@ -149,7 +149,7 @@ fun MovnetApp() {
                 playingMovie != null -> PlayerScreen(movie = playingMovie!!, onBack = { playingMovie = null })
                 showAccount -> AccountScreen(
                     email = accountEmail, displayName = accountName, createdAt = accountCreatedAt,
-                    plan = accountPlan, loggedIn = loggedIn, isCreator = accountIsCreator, publicId = socialPublicId,
+                    plan = accountPlan, loggedIn = loggedIn, isCreator = accountIsCreator, publicId = socialPublicId, authToken = authToken,
                     onEmail = { accountEmail = it }, onDisplayName = { accountName = it },
                     onRequestPasswordReset = { email -> MovnetApi.requestPasswordReset(email) },
                     onResetPassword = { email, code, newPassword -> MovnetApi.confirmPasswordReset(email, code, newPassword) },
@@ -857,7 +857,7 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
 }
 @Composable
 fun AccountScreen(
-    email: String, displayName: String, createdAt: String, plan: String, loggedIn: Boolean, isCreator: Boolean, publicId: String,
+    email: String, displayName: String, createdAt: String, plan: String, loggedIn: Boolean, isCreator: Boolean, publicId: String, authToken: String?,
     onEmail: (String) -> Unit, onDisplayName: (String) -> Unit,
     onSubmit: suspend (String, String, String, Boolean) -> Unit,
     onRequestPasswordReset: suspend (String) -> Unit,
@@ -928,6 +928,69 @@ fun AccountScreen(
                     Text("Поделись ID с другом, чтобы он мог отправить заявку в друзья.", color = Muted, fontSize = 12.sp)
                 }
             }
+            var friendIdInput by remember { mutableStateOf("") }
+            var friendStatus by remember { mutableStateOf<String?>(null) }
+            var friendBusy by remember { mutableStateOf(false) }
+            var friendRows by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+            var requestRows by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
+            LaunchedEffect(authToken) {
+                val token = authToken ?: return@LaunchedEffect
+                runCatching {
+                    val friendsJson = MovnetApi.loadFriends(token)
+                    friendRows = (0 until friendsJson.length()).map { i ->
+                        val item = friendsJson.getJSONObject(i)
+                        item.optString("display_name") to item.optString("public_id")
+                    }
+                    val requestsJson = MovnetApi.loadFriendRequests(token)
+                    requestRows = (0 until requestsJson.length()).map { i ->
+                        val item = requestsJson.getJSONObject(i)
+                        item.optInt("request_id") to (item.optString("display_name") + " • " + item.optString("public_id"))
+                    }
+                }.onFailure { friendStatus = it.message ?: "Не удалось загрузить друзей" }
+            }
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("ДРУЗЬЯ MOVNET", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(value = friendIdInput, onValueChange = { friendIdInput = it.uppercase().filter { ch -> ch.isLetterOrDigit() }.take(12) }, label = { Text("MOVNET ID друга") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Button(enabled = !friendBusy && friendIdInput.length >= 6 && authToken != null, onClick = {
+                        scope.launch {
+                            friendBusy = true; friendStatus = null
+                            try {
+                                val result = MovnetApi.sendFriendRequest(friendIdInput, authToken!!)
+                                friendStatus = result.optString("message", "Заявка отправлена"); friendIdInput = ""
+                            } catch (e: Exception) { friendStatus = e.message ?: "Не удалось отправить заявку" }
+                            finally { friendBusy = false }
+                        }
+                    }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Accent)) { Text(if (friendBusy) "Отправляем…" else "Найти и добавить") }
+                    friendStatus?.let { Text(it, color = Muted, fontSize = 12.sp) }
+                    if (requestRows.isNotEmpty()) {
+                        Text("ВХОДЯЩИЕ ЗАЯВКИ", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        requestRows.forEach { (requestId, label) ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(label, Modifier.weight(1f), fontSize = 12.sp)
+                                TextButton(onClick = { scope.launch {
+                                    try {
+                                        MovnetApi.acceptFriendRequest(requestId, authToken!!)
+                                        requestRows = requestRows.filterNot { it.first == requestId }
+                                        val json = MovnetApi.loadFriends(authToken)
+                                        friendRows = (0 until json.length()).map { i -> val item = json.getJSONObject(i); item.optString("display_name") to item.optString("public_id") }
+                                        friendStatus = "Вы теперь друзья!"
+                                    } catch (e: Exception) { friendStatus = e.message ?: "Ошибка принятия заявки" }
+                                } }) { Text("Принять", color = Accent) }
+                            }
+                        }
+                    }
+                    Text("МОИ ДРУЗЬЯ (${friendRows.size})", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    if (friendRows.isEmpty()) Text("Пока нет друзей. Найди знакомого по его MOVNET ID.", color = Muted, fontSize = 12.sp)
+                    friendRows.forEach { (name, id) ->
+                        Row(Modifier.fillMaxWidth().background(Background, RoundedCornerShape(12.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) { Text(name.ifBlank { "Пользователь MOVNET" }, fontWeight = FontWeight.SemiBold); Text(id, color = Muted, fontSize = 11.sp) }
+                            Text("✓", color = Color(0xFF65D6A2), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
             Text("Данные профиля", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             OutlinedTextField(
                 value = displayName, onValueChange = { onDisplayName(it); saved = false },
