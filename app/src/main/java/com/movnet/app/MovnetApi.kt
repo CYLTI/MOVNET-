@@ -97,6 +97,21 @@ object MovnetApi {
         request("/auth/password/reset/confirm", "POST", body)
     }
 
+    suspend fun loadSocialProfile(token: String): JSONObject = JSONObject(request("/social/me", token = token))
+
+    suspend fun sendFriendRequest(publicId: String, token: String): JSONObject {
+        val body = JSONObject().put("target_public_id", publicId.trim().uppercase())
+        return JSONObject(request("/social/friend-requests", "POST", body, token))
+    }
+
+    suspend fun loadFriends(token: String): JSONArray = JSONArray(request("/social/friends", token = token))
+
+    suspend fun loadFriendRequests(token: String): JSONArray = JSONArray(request("/social/friend-requests", token = token))
+
+    suspend fun acceptFriendRequest(requestId: Int, token: String) {
+        request("/social/friend-requests/$requestId/accept", "POST", JSONObject(), token)
+    }
+
     suspend fun loadProfile(token: String): JSONObject = JSONObject(request("/me", token = token))
 
     suspend fun loadEntitlements(token: String): JSONObject = JSONObject(request("/entitlements", token = token))
