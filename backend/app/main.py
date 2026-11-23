@@ -898,12 +898,6 @@ def leave_watch_room(room_id: int, user: User = Depends(current_user), db: Sessi
     return {"ok": True}
 
 
-@app.get("/entitlements")
-def entitlements(user: User = Depends(current_user), db: Session = Depends(db_session)):
-    # Creator privileges are configured server-side and cannot be self-assigned by clients.
-    creator_emails = {value.strip().lower() for value in settings.creator_emails.split(",") if value.strip()}
-
-
 @app.put("/me")
 def update_me(body: ProfileUpdateRequest, user: User = Depends(current_user), db: Session = Depends(db_session)):
     user.display_name = body.display_name.strip()
