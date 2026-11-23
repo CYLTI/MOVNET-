@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import secrets
 import json
 import smtplib
@@ -11,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Generator
 
 import jwt
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pwdlib import PasswordHash
@@ -42,6 +43,9 @@ class Settings(BaseSettings):
     turn_credential: str = ""
     account_recovery_key: str = ""
     account_recovery_email: str = ""
+    yookassa_shop_id: str = ""
+    yookassa_secret_key: str = ""
+    yookassa_return_url: str = "https://movnet-api.onrender.com/payment-return"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
@@ -240,6 +244,20 @@ class RedeemCode(Base):
     redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class PaymentAttempt(Base):
+    __tablename__ = "payment_attempts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    provider_payment_id: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True, index=True)
+    plan: Mapped[str] = mapped_column(String(80))
+    amount: Mapped[str] = mapped_column(String(20))
+    currency: Mapped[str] = mapped_column(String(3), default="RUB")
+    status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    confirmation_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 Base.metadata.create_all(bind=engine)
 # Safe additive migration for existing Render databases; existing accounts are preserved.
 with engine.begin() as migration:
@@ -354,6 +372,10 @@ class ReviewRequest(BaseModel):
 
 class RedeemRequest(BaseModel):
     code: str = Field(min_length=12, max_length=128)
+
+
+class PaymentCreateRequest(BaseModel):
+    plan: str = Field(min_length=1, max_length=80)
 
 
 class FriendRequestCreate(BaseModel):
@@ -1079,10 +1101,129 @@ def redeem(body: RedeemRequest, user: User = Depends(current_user), db: Session 
     return {"active": True, "plan": code.plan, "expires_at": expiry}
 
 
-@app.post("/payments/create", status_code=501)
-def create_payment(user: User = Depends(current_user)):
-    # Intentionally disabled until a real provider and verified webhook are configured.
-    raise HTTPException(status_code=501, detail="Payments are not configured. No payment was created and no subscription was activated.")
+# Prices and durations are server-owned. The client cannot choose an amount or grant itself Premium.
+PAYMENT_PLANS = {
+    "Premium": {"amount": "199.00", "days": 30},
+    "Premium+": {"amount": "300.00", "days": 30},
+    "Суперподписка — стандарт": {"amount": "2000.00", "days": 365},
+    "Суперподписка — 2K/4K": {"amount": "2500.00", "days": 365},
+}
+
+
+def _yookassa_request(path: str, method: str = "GET", payload: dict | None = None, idempotence_key: str | None = None) -> dict:
+    if not settings.yookassa_shop_id or not settings.yookassa_secret_key:
+        raise HTTPException(status_code=503, detail="Платежи пока не настроены владельцем MOVNET.")
+    raw_auth = f"{settings.yookassa_shop_id}:{settings.yookassa_secret_key}".encode("utf-8")
+    headers = {
+        "Authorization": "Basic " + base64.b64encode(raw_auth).decode("ascii"),
+        "Accept": "application/json",
+    }
+    data = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    if idempotence_key:
+        headers["Idempotence-Key"] = idempotence_key
+    req = urllib.request.Request("https://api.yookassa.ru/v3" + path, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:500]
+        print(f"YooKassa HTTP {exc.code}: {detail}")
+        raise HTTPException(status_code=502, detail="Платёжный сервис временно отклонил запрос.")
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        print(f"YooKassa request failed: {exc}")
+        raise HTTPException(status_code=502, detail="Не удалось связаться с платёжным сервисом.")
+
+
+@app.post("/payments/create")
+def create_payment(body: PaymentCreateRequest, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    plan = PAYMENT_PLANS.get(body.plan)
+    if plan is None:
+        raise HTTPException(status_code=400, detail="Неизвестный тариф MOVNET.")
+    if _is_premium_user(user, db):
+        raise HTTPException(status_code=409, detail="У аккаунта уже есть активная Premium-подписка.")
+    attempt = PaymentAttempt(
+        user_id=user.id, plan=body.plan, amount=plan["amount"], currency="RUB", status="creating"
+    )
+    db.add(attempt)
+    db.commit()
+    db.refresh(attempt)
+    payment = _yookassa_request("/payments", "POST", {
+        "amount": {"value": plan["amount"], "currency": "RUB"},
+        "capture": True,
+        "confirmation": {"type": "redirect", "return_url": settings.yookassa_return_url},
+        "description": f"MOVNET — {body.plan}",
+        "metadata": {"movnet_payment_attempt_id": str(attempt.id), "movnet_user_id": str(user.id), "movnet_plan": body.plan},
+    }, idempotence_key=f"movnet-payment-{attempt.id}")
+    confirmation = payment.get("confirmation") or {}
+    payment_id = payment.get("id")
+    confirmation_url = confirmation.get("confirmation_url")
+    if not payment_id or not confirmation_url:
+        attempt.status = "failed"
+        db.commit()
+        raise HTTPException(status_code=502, detail="Платёжный сервис не вернул ссылку на оплату.")
+    attempt.provider_payment_id = payment_id
+    attempt.confirmation_url = confirmation_url
+    attempt.status = payment.get("status", "pending")
+    db.commit()
+    return {"payment_id": attempt.id, "confirmation_url": confirmation_url, "status": attempt.status,
+            "plan": attempt.plan, "amount": attempt.amount, "currency": attempt.currency}
+
+
+@app.get("/payments/{payment_attempt_id}")
+def get_payment_status(payment_attempt_id: int, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    attempt = db.get(PaymentAttempt, payment_attempt_id)
+    if attempt is None or attempt.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Платёж не найден.")
+    return {"payment_id": attempt.id, "status": attempt.status, "plan": attempt.plan,
+            "amount": attempt.amount, "currency": attempt.currency}
+
+
+@app.post("/payments/yookassa/webhook")
+async def yookassa_webhook(request: Request, db: Session = Depends(db_session)):
+    # YooKassa notifications are not trusted by themselves: fetch the payment from its API.
+    try:
+        event = await request.json()
+        obj = event.get("object") or {}
+        provider_id = obj.get("id")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid webhook payload.")
+    if not provider_id:
+        raise HTTPException(status_code=400, detail="Missing payment ID.")
+    attempt = db.scalar(select(PaymentAttempt).where(PaymentAttempt.provider_payment_id == provider_id).with_for_update())
+    if attempt is None:
+        # Unknown notifications are acknowledged without granting anything.
+        return {"ok": True}
+    verified = _yookassa_request(f"/payments/{provider_id}")
+    metadata = verified.get("metadata") or {}
+    expected = PAYMENT_PLANS.get(attempt.plan)
+    amount = (verified.get("amount") or {}).get("value")
+    if (verified.get("status") != "succeeded" or verified.get("paid") is not True
+            or not expected or amount != expected["amount"]
+            or metadata.get("movnet_payment_attempt_id") != str(attempt.id)
+            or metadata.get("movnet_user_id") != str(attempt.user_id)
+            or metadata.get("movnet_plan") != attempt.plan):
+        return {"ok": True}
+    if attempt.status != "succeeded":
+        now = datetime.now(timezone.utc)
+        entitlement = db.scalar(select(Entitlement).where(Entitlement.user_id == attempt.user_id).with_for_update())
+        start = utc_aware(entitlement.expires_at) if entitlement and utc_aware(entitlement.expires_at) > now else now
+        expiry = start + timedelta(days=expected["days"])
+        if entitlement:
+            entitlement.plan, entitlement.expires_at = attempt.plan, expiry
+        else:
+            db.add(Entitlement(user_id=attempt.user_id, plan=attempt.plan, expires_at=expiry))
+        attempt.status = "succeeded"
+        attempt.processed_at = now
+        db.commit()
+    return {"ok": True}
+
+
+@app.get("/payment-return")
+def payment_return():
+    return {"service": "MOVNET", "message": "Вернитесь в приложение MOVNET. Статус оплаты обновится автоматически."}
 
 
 # Helper for local development only. Never expose this as a public endpoint.
