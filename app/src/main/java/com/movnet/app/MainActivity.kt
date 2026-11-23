@@ -26,6 +26,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -281,11 +286,18 @@ fun CatalogScreen(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(34.dp).background(Accent, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-                    Text("M", fontSize = 23.sp, fontWeight = FontWeight.Black)
+                Box(
+                    Modifier.size(42.dp).shadow(10.dp, RoundedCornerShape(14.dp))
+                        .background(Brush.linearGradient(listOf(Accent, Color(0xFF9B2458))), RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("M", fontSize = 27.sp, fontWeight = FontWeight.Black)
                 }
-                Spacer(Modifier.width(9.dp))
-                Text("MOVNET", fontSize = 23.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                Spacer(Modifier.width(11.dp))
+                Column {
+                    Text("MOVNET", fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                    Text("ТВОЁ КИНО ПРОСТРАНСТВО", fontSize = 8.sp, color = Muted, letterSpacing = 1.2.sp)
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("КАТАЛОГ", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -309,7 +321,7 @@ fun CatalogScreen(
             )
         )
 
-        Text("Категории", Modifier.padding(start = 18.dp, top = 7.dp, bottom = 5.dp), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        Text("Выбирай, что посмотреть", Modifier.padding(start = 18.dp, top = 10.dp, bottom = 7.dp), fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             contentTypes.forEach { type ->
                 FilterChip(
@@ -323,7 +335,7 @@ fun CatalogScreen(
             }
         }
 
-        Text("Жанры", Modifier.padding(start = 18.dp, top = 5.dp, bottom = 5.dp), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text("Жанры", Modifier.padding(start = 18.dp, top = 9.dp, bottom = 6.dp), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Muted)
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             genres.forEach { genre ->
                 AssistChip(
@@ -360,7 +372,39 @@ fun CatalogScreen(
         }
 
         // Прокручивается только список карточек; фильтры и нижняя навигация остаются на месте.
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 12.dp)) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 18.dp)) {
+            if (selectedTab == "Главная" && query.isBlank() && filtered.isNotEmpty()) {
+                item(key = "featured") {
+                    val featured = filtered.first()
+                    AnimatedVisibility(visible = true, enter = fadeIn(tween(350)) + slideInVertically(initialOffsetY = { it / 8 })) {
+                        Column(
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
+                                .background(Brush.linearGradient(listOf(Color(0xFF351827), Color(0xFF171D2B))), RoundedCornerShape(24.dp))
+                                .padding(16.dp)
+                        ) {
+                            Text("ВЫБОР MOVNET", color = Color(0xFFFFA6B8), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                            Spacer(Modifier.height(10.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.width(104.dp).height(138.dp).background(Color(0xFF252B39), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+                                    if (featured.posterUrl != null) AsyncImage(model = featured.posterUrl, contentDescription = "Постер", modifier = Modifier.fillMaxSize())
+                                    else Text(featured.emoji, fontSize = 46.sp)
+                                }
+                                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                                    Text(featured.title, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 24.sp)
+                                    Spacer(Modifier.height(6.dp))
+                                    Text("${featured.year} • ${featured.genre}", color = Muted, fontSize = 12.sp)
+                                    Spacer(Modifier.height(12.dp))
+                                    Button(onClick = { onMovie(featured) }, shape = RoundedCornerShape(13.dp),
+                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 9.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Accent)) {
+                                        Text("Смотреть", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if (!hasPremium) {
                 item {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp)
@@ -442,12 +486,12 @@ private fun MovnetAdBanner() {
 @Composable
 fun MovieRow(movie: Movie, isFavorite: Boolean, onClick: () -> Unit, onFavorite: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp)
-            .background(SurfaceDark, RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(12.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp)
+            .background(SurfaceDark, RoundedCornerShape(20.dp)).clickable(onClick = onClick).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.width(92.dp).height(124.dp)
-            .background(Brush.linearGradient(listOf(Color(0xFF52243B), Color(0xFF242C42))), RoundedCornerShape(12.dp)),
+        Box(Modifier.width(100.dp).height(136.dp)
+            .background(Brush.linearGradient(listOf(Color(0xFF52243B), Color(0xFF242C42))), RoundedCornerShape(15.dp)),
             contentAlignment = Alignment.Center) {
             if (movie.posterUrl != null) AsyncImage(model = movie.posterUrl, contentDescription = "Постер фильма", modifier = Modifier.fillMaxSize())
             else Text(movie.emoji, fontSize = 42.sp)
