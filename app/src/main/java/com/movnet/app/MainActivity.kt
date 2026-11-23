@@ -96,6 +96,11 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MovnetApp() {
     val context = LocalContext.current
+    val hostActivity = remember(context) {
+        var current: Context = context
+        while (current is ContextWrapper && current !is ComponentActivity) current = current.baseContext
+        current as? ComponentActivity
+    }
     val preferences = remember(context) { context.getSharedPreferences("movnet_preferences", Context.MODE_PRIVATE) }
     var selectedMovie by remember { mutableStateOf<Movie?>(null) }
     var playingMovie by remember { mutableStateOf<Movie?>(null) }
@@ -203,7 +208,7 @@ fun MovnetApp() {
                         if (movieToPlay != null) {
                             if (accountPlan != "Free") playingMovie = movieToPlay
                             else {
-                                val host = context as? ComponentActivity
+                                val host = hostActivity
                                 if (host != null) MovnetAds.showPreRoll(host) { playingMovie = movieToPlay }
                                 else playingMovie = movieToPlay
                             }
