@@ -14,7 +14,6 @@
             <solid android:color="#B0000000" />
         </shape>
     </item>
-    <item android:width="176dp" android:height="110dp" android:gravity="center">
-        <bitmap android:src="@drawable/movnet_splash_m" android:gravity="center" />
-    </item>
+    <item android:width="176dp" android:height="110dp" android:gravity="center"
+        android:drawable="@drawable/movnet_splash_m" />
 </layer-list>
