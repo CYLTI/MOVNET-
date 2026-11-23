@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/black" />
+    <item android:width="300dp" android:height="300dp" android:gravity="center">
+        <shape android:shape="rectangle">
+            <corners android:radius="66dp" />
+            <gradient android:type="linear" android:angle="315"
+                android:startColor="#7900F5" android:centerColor="#E90055" android:endColor="#FF7900" />
+        </shape>
+    </item>
+    <item android:width="300dp" android:height="300dp" android:gravity="center">
+        <shape android:shape="rectangle">
+            <corners android:radius="66dp" />
+            <solid android:color="#B0000000" />
+        </shape>
+    </item>
+    <item android:width="176dp" android:height="110dp" android:gravity="center">
+        <bitmap android:src="@drawable/movnet_splash_m" android:gravity="center" />
+    </item>
+</layer-list>
