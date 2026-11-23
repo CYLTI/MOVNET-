@@ -124,6 +124,27 @@ object MovnetApi {
     suspend fun loadCallSignals(roomId: Int, afterId: Int, token: String): JSONArray =
         JSONArray(request("/watch/rooms/$roomId/call/signals?after_id=$afterId", token = token))
 
+    suspend fun createDirectCall(recipientUserId: Int, mediaType: String, token: String): JSONObject {
+        val body = JSONObject().put("recipient_user_id", recipientUserId).put("media_type", mediaType)
+        return JSONObject(request("/social/calls", "POST", body, token))
+    }
+
+    suspend fun loadIncomingCalls(token: String): JSONArray =
+        JSONArray(request("/social/calls/incoming", token = token))
+
+    suspend fun loadDirectCall(callId: Int, token: String): JSONObject =
+        JSONObject(request("/social/calls/$callId", token = token))
+
+    suspend fun updateDirectCallStatus(callId: Int, status: String, token: String): JSONObject =
+        JSONObject(request("/social/calls/$callId/status", "PUT", JSONObject().put("status", status), token))
+
+    suspend fun sendDirectCallSignal(callId: Int, kind: String, payload: String, token: String): JSONObject =
+        JSONObject(request("/social/calls/$callId/signals", "POST",
+            JSONObject().put("kind", kind).put("payload", payload), token))
+
+    suspend fun loadDirectCallSignals(callId: Int, afterId: Int, token: String): JSONArray =
+        JSONArray(request("/social/calls/$callId/signals?after_id=$afterId", token = token))
+
     suspend fun acceptFriendRequest(requestId: Int, token: String) {
         request("/social/friend-requests/$requestId/accept", "POST", JSONObject(), token)
     }
