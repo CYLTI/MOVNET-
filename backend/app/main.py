@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     smtp_from_email: str = ""
     resend_api_key: str = ""
     resend_from_email: str = "MOVNET <onboarding@resend.dev>"
+    turn_urls: str = ""
+    turn_username: str = ""
+    turn_credential: str = ""
     account_recovery_key: str = ""
     account_recovery_email: str = ""
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -141,6 +144,28 @@ class DirectMessage(Base):
     sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     receiver_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     body: Mapped[str] = mapped_column(String(2000))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class DirectCall(Base):
+    __tablename__ = "direct_calls"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    caller_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    callee_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    media_type: Mapped[str] = mapped_column(String(10))
+    status: Mapped[str] = mapped_column(String(16), default="ringing", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class DirectCallSignal(Base):
+    __tablename__ = "direct_call_signals"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    call_id: Mapped[int] = mapped_column(ForeignKey("direct_calls.id"), index=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    payload: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -355,6 +380,20 @@ class WatchRoomStateUpdate(BaseModel):
 
 class WatchRoomMessageCreate(BaseModel):
     body: str = Field(min_length=1, max_length=1000)
+
+
+class DirectCallCreate(BaseModel):
+    recipient_user_id: int = Field(gt=0)
+    media_type: str = Field(pattern="^(audio|video)$")
+
+
+class DirectCallStatusUpdate(BaseModel):
+    status: str = Field(pattern="^(accepted|rejected|ended)$")
+
+
+class DirectCallSignalCreate(BaseModel):
+    kind: str = Field(pattern="^(offer|answer|ice)$")
+    payload: str = Field(min_length=1, max_length=32000)
 
 
 class WatchCallSignalCreate(BaseModel):
@@ -773,6 +812,99 @@ def send_direct_message(friend_user_id: int, body: DirectMessageCreate, user: Us
     return {"id": message.id, "sender_id": message.sender_id, "body": message.body, "created_at": message.created_at}
 
 
+@app.get("/social/calls/ice-servers")
+def get_call_ice_servers(user: User = Depends(current_user)):
+    servers = [{"urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]}]
+    turn_urls = [value.strip() for value in settings.turn_urls.split(",") if value.strip()]
+    if turn_urls and settings.turn_username and settings.turn_credential:
+        servers.append({"urls": turn_urls, "username": settings.turn_username, "credential": settings.turn_credential})
+    return {"ice_servers": servers, "turn_configured": len(servers) > 1}
+
+
+@app.post("/social/calls", status_code=201)
+def create_direct_call(body: DirectCallCreate, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    if body.recipient_user_id == user.id or not _are_friends(db, user.id, body.recipient_user_id):
+        raise HTTPException(status_code=403, detail="Звонить можно только друзьям MOVNET.")
+    existing = db.scalar(select(DirectCall).where(
+        DirectCall.status.in_(["ringing", "accepted"]),
+        ((DirectCall.caller_id == user.id) & (DirectCall.callee_id == body.recipient_user_id)) |
+        ((DirectCall.caller_id == body.recipient_user_id) & (DirectCall.callee_id == user.id))
+    ).order_by(DirectCall.id.desc()))
+    if existing:
+        raise HTTPException(status_code=409, detail="Между вами уже есть активный звонок.")
+    call = DirectCall(caller_id=user.id, callee_id=body.recipient_user_id,
+                      media_type=body.media_type, status="ringing")
+    db.add(call); db.commit(); db.refresh(call)
+    return {"call_id": call.id, "caller_user_id": user.id, "callee_user_id": body.recipient_user_id,
+            "media_type": call.media_type, "status": call.status}
+
+
+@app.get("/social/calls/incoming")
+def list_incoming_calls(user: User = Depends(current_user), db: Session = Depends(db_session)):
+    calls = db.scalars(select(DirectCall).where(
+        DirectCall.callee_id == user.id, DirectCall.status == "ringing"
+    ).order_by(DirectCall.id.desc()).limit(20)).all()
+    caller_ids = [c.caller_id for c in calls]
+    users = {u.id: u for u in db.scalars(select(User).where(User.id.in_(caller_ids))).all()} if caller_ids else {}
+    return [{"call_id": c.id, "caller_user_id": c.caller_id,
+             "caller_name": users[c.caller_id].display_name or "Пользователь" if c.caller_id in users else "Пользователь",
+             "media_type": c.media_type, "status": c.status, "created_at": c.created_at} for c in calls]
+
+
+@app.get("/social/calls/{call_id}")
+def get_direct_call(call_id: int, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    call = db.get(DirectCall, call_id)
+    if call is None or user.id not in (call.caller_id, call.callee_id):
+        raise HTTPException(status_code=404, detail="Звонок не найден.")
+    other_id = call.callee_id if user.id == call.caller_id else call.caller_id
+    other = db.get(User, other_id)
+    return {"call_id": call.id, "caller_user_id": call.caller_id, "callee_user_id": call.callee_id,
+            "other_user_id": other_id, "other_name": other.display_name or "Пользователь" if other else "Пользователь",
+            "media_type": call.media_type, "status": call.status}
+
+
+@app.put("/social/calls/{call_id}/status")
+def update_direct_call_status(call_id: int, body: DirectCallStatusUpdate, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    call = db.get(DirectCall, call_id)
+    if call is None or user.id not in (call.caller_id, call.callee_id):
+        raise HTTPException(status_code=404, detail="Звонок не найден.")
+    if body.status == "accepted" and (user.id != call.callee_id or call.status != "ringing"):
+        raise HTTPException(status_code=409, detail="Нельзя принять этот звонок.")
+    if body.status == "rejected" and (user.id != call.callee_id or call.status != "ringing"):
+        raise HTTPException(status_code=409, detail="Нельзя отклонить этот звонок.")
+    if body.status == "ended" and call.status not in ("ringing", "accepted"):
+        return {"ok": True, "status": call.status}
+    call.status = body.status
+    call.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"ok": True, "status": call.status}
+
+
+@app.post("/social/calls/{call_id}/signals", status_code=201)
+def send_direct_call_signal(call_id: int, body: DirectCallSignalCreate, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    call = db.get(DirectCall, call_id)
+    if call is None or user.id not in (call.caller_id, call.callee_id) or call.status != "accepted":
+        raise HTTPException(status_code=404, detail="Активный звонок не найден.")
+    recipient_id = call.callee_id if user.id == call.caller_id else call.caller_id
+    signal = DirectCallSignal(call_id=call.id, sender_id=user.id, recipient_id=recipient_id,
+                              kind=body.kind, payload=body.payload)
+    db.add(signal); db.commit(); db.refresh(signal)
+    return {"id": signal.id, "ok": True}
+
+
+@app.get("/social/calls/{call_id}/signals")
+def get_direct_call_signals(call_id: int, after_id: int = 0, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    call = db.get(DirectCall, call_id)
+    if call is None or user.id not in (call.caller_id, call.callee_id):
+        raise HTTPException(status_code=404, detail="Звонок не найден.")
+    rows = db.scalars(select(DirectCallSignal).where(
+        DirectCallSignal.call_id == call.id, DirectCallSignal.recipient_id == user.id,
+        DirectCallSignal.id > after_id
+    ).order_by(DirectCallSignal.id.asc()).limit(100)).all()
+    return [{"id": x.id, "sender_user_id": x.sender_id, "kind": x.kind,
+             "payload": x.payload, "created_at": x.created_at} for x in rows]
+
+
 @app.post("/watch/rooms", status_code=201)
 def create_watch_room(body: WatchRoomCreate, user: User = Depends(current_user), db: Session = Depends(db_session)):
     item = db.get(CatalogItem, body.item_id)
@@ -896,6 +1028,12 @@ def leave_watch_room(room_id: int, user: User = Depends(current_user), db: Sessi
     db.query(WatchRoomMember).filter(WatchRoomMember.room_id == room.id, WatchRoomMember.user_id == user.id).delete()
     db.commit()
     return {"ok": True}
+
+
+@app.get("/entitlements")
+def entitlements(user: User = Depends(current_user), db: Session = Depends(db_session)):
+    # Creator privileges are configured server-side and cannot be self-assigned by clients.
+    creator_emails = {value.strip().lower() for value in settings.creator_emails.split(",") if value.strip()}
 
 
 @app.put("/me")
