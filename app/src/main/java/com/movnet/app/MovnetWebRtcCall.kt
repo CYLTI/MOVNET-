@@ -76,15 +76,15 @@ class MovnetWebRtcCall(
                     ?: error("Не удалось открыть камеру")
                 cameraSource = f.createVideoSource(false)
                 val helper = SurfaceTextureHelper.create("MOVNET-Camera", egl.eglBaseContext)
-                capturer?.initialize(helper, appContext, cameraSource?.capturerObserver)
+                capturer?.initialize(helper, appContext, cameraSource!!.capturerObserver)
                 capturer?.startCapture(720, 1280, 24)
                 localVideo = f.createVideoTrack("movnet_video_$callId", cameraSource)
-                localVideo?.addSink(localRenderer)
+                localRenderer?.let { renderer -> localVideo?.addSink(renderer) }
                 peer?.addTrack(localVideo, listOf("movnet_stream_$callId"))
             }
 
+            pollSignals()
             if (isCaller) createOffer()
-            else pollSignals()
         } catch (e: Exception) {
             onError(e.message ?: "Не удалось запустить звонок")
         }
@@ -115,7 +115,7 @@ class MovnetWebRtcCall(
         override fun onRenegotiationNeeded() {}
         override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
             val track = receiver?.track() as? VideoTrack ?: return
-            track.addSink(remoteRenderer)
+            remoteRenderer?.let { renderer -> track.addSink(renderer) }
         }
     }
 
