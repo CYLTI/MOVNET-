@@ -381,10 +381,9 @@ fun CatalogScreen(
                         onClick = { onMovie(item) },
                         onFavorite = { onFavoriteToggle(item.title) }
                     )
-                    // Дополнительный рекламный блок после шести карточек; Premium его не видит.
-                    if (!hasPremium && index == 5) {
-                        item { MovnetAdBanner() }
-                    }
+                }
+                if (!hasPremium) {
+                    item { MovnetAdBanner() }
                 }
             }
         }
@@ -417,6 +416,19 @@ fun CatalogScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun MovnetAdBanner() {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp)
+            .background(SurfaceDark, RoundedCornerShape(14.dp)).padding(8.dp)
+    ) {
+        Text("РЕКЛАМА", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
+        AndroidView(factory = { ctx -> MovnetAds.createTestBanner(ctx) },
+            modifier = Modifier.fillMaxWidth().height(50.dp))
     }
 }
 
