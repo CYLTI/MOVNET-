@@ -65,7 +65,7 @@ class MovnetWebRtcCall(
             val f = factory ?: error("WebRTC не инициализирован")
             audioSource = f.createAudioSource(MediaConstraints())
             localAudio = f.createAudioTrack("movnet_audio_$callId", audioSource)
-            peer?.addTrack(localAudio, listOf("movnet_stream_$callId"))
+            localAudio?.let { peer?.addTrack(it, listOf("movnet_stream_$callId")) }
 
             if (videoEnabled) {
                 val enumerator: CameraEnumerator = Camera2Enumerator(appContext)
@@ -78,9 +78,9 @@ class MovnetWebRtcCall(
                 val helper = SurfaceTextureHelper.create("MOVNET-Camera", egl.eglBaseContext)
                 capturer?.initialize(helper, appContext, cameraSource!!.capturerObserver)
                 capturer?.startCapture(720, 1280, 24)
-                localVideo = f.createVideoTrack("movnet_video_$callId", cameraSource)
+                localVideo = f.createVideoTrack("movnet_video_$callId", cameraSource!!)
                 localRenderer?.let { renderer -> localVideo?.addSink(renderer) }
-                peer?.addTrack(localVideo, listOf("movnet_stream_$callId"))
+                localVideo?.let { peer?.addTrack(it, listOf("movnet_stream_$callId")) }
             }
 
             pollSignals()
