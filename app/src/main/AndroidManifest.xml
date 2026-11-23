@@ -11,7 +11,7 @@
         android:usesCleartextTraffic="false"
         android:label="MOVNET"
         android:icon="@drawable/movnet_icon"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:theme="@style/Theme.MOVNET.Launch"
         android:supportsRtl="true">
         <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-3940256099942544~3347511713" />
         <activity
