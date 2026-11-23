@@ -37,7 +37,7 @@ class MovnetWebRtcCall(
 
     fun eglContext() = egl.eglBaseContext
 
-    fun start(isCaller: Boolean) {
+    fun start(isCaller: Boolean, configuredIceServers: List<PeerConnection.IceServer> = emptyList()) {
         try {
             PeerConnectionFactory.initialize(
                 PeerConnectionFactory.InitializationOptions.builder(appContext).createInitializationOptions()
@@ -54,10 +54,13 @@ class MovnetWebRtcCall(
             remoteRenderer?.init(egl.eglBaseContext, null)
             remoteRenderer?.setMirror(false)
 
-            val config = PeerConnection.RTCConfiguration(listOf(
-                PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-                PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()
-            )).apply {
+            val iceServers = configuredIceServers.ifEmpty {
+                listOf(
+                    PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+                    PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()
+                )
+            }
+            val config = PeerConnection.RTCConfiguration(iceServers).apply {
                 sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
                 continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
             }
