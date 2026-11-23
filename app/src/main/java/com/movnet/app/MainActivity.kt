@@ -123,7 +123,8 @@ fun MovnetApp() {
         catch (e: Exception) { catalogError = e.message ?: "Нет соединения с сервером. Показана резервная подборка." }
         finally { catalogLoading = false }
     }
-    LaunchedEffect(authToken) {
+    var entitlementLoadError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(authToken, showAccount) {
         val token = authToken
         if (token != null) {
             try {
@@ -135,8 +136,14 @@ fun MovnetApp() {
                 val entitlement = MovnetApi.loadEntitlements(token)
                 accountPlan = if (entitlement.optBoolean("active")) entitlement.optString("plan", "Premium") else "Free"
                 accountIsCreator = entitlement.optBoolean("is_creator", false)
+                entitlementLoadError = null
+            } catch (e: Exception) {
+                entitlementLoadError = e.message ?: "Не удалось проверить подписку"
+                if (e.message?.contains("Invalid or expired token", true) == true || e.message?.contains("Account not found", true) == true) {
+                    preferences.edit().remove("access_token").apply()
+                    authToken = null; loggedIn = false
+                }
             }
-            catch (e: Exception) { if (e.message?.contains("Invalid or expired token", true) == true || e.message?.contains("Account not found", true) == true) { preferences.edit().remove("access_token").apply(); authToken = null; loggedIn = false } }
         }
     }
     var showPremium by remember { mutableStateOf(false) }
@@ -172,6 +179,7 @@ fun MovnetApp() {
                 showAccount -> AccountScreen(
                     email = accountEmail, displayName = accountName, createdAt = accountCreatedAt,
                     plan = accountPlan, loggedIn = loggedIn, isCreator = accountIsCreator, publicId = socialPublicId, authToken = authToken,
+                    entitlementError = entitlementLoadError,
                     onEmail = { accountEmail = it }, onDisplayName = { accountName = it },
                     onRequestPasswordReset = { email -> MovnetApi.requestPasswordReset(email) },
                     onResetPassword = { email, code, newPassword -> MovnetApi.confirmPasswordReset(email, code, newPassword) },
@@ -964,7 +972,7 @@ private fun DirectChatDialog(friendName: String, friendId: Int, ownUserId: Int, 
 
 @Composable
 fun AccountScreen(
-    email: String, displayName: String, createdAt: String, plan: String, loggedIn: Boolean, isCreator: Boolean, publicId: String, authToken: String?,
+    email: String, displayName: String, createdAt: String, plan: String, loggedIn: Boolean, isCreator: Boolean, publicId: String, authToken: String?, entitlementError: String? = null,
     onEmail: (String) -> Unit, onDisplayName: (String) -> Unit,
     onSubmit: suspend (String, String, String, Boolean) -> Unit,
     onRequestPasswordReset: suspend (String) -> Unit,
@@ -1022,6 +1030,7 @@ fun AccountScreen(
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Text("МОЯ ПОДПИСКА", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    if (entitlementError != null) Text("Не удалось обновить статус: $entitlementError", color = Color(0xFFFFB86B), fontSize = 11.sp)
                     Text(plan, color = if (plan == "Free") Color.White else Color(0xFFFFC857),
                         fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
                     Text(if (plan == "Free") "Базовый доступ MOVNET" else "Подписка активна",
