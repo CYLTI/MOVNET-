@@ -1566,9 +1566,27 @@ private fun DirectCallScreen(call: IncomingMovnetCall, token: String, isCaller: 
     }
     LaunchedEffect(permissionReady, callStatus, localRenderer, remoteRenderer) {
         if (permissionReady && callStatus == "accepted" && engine == null && (!video || (localRenderer != null && remoteRenderer != null))) {
-            val media = MovnetWebRtcCall(context, call.id, token, scope, localRenderer, remoteRenderer, video) { error = it }
-            engine = media
-            media.start(isCaller)
+            try {
+                val iceJson = MovnetApi.loadCallIceServers(token)
+                val iceServers = buildList {
+                    for (i in 0 until iceJson.length()) {
+                        val item = iceJson.getJSONObject(i)
+                        val rawUrls = item.opt("urls")
+                        val urls = if (rawUrls is org.json.JSONArray) {
+                            (0 until rawUrls.length()).map { rawUrls.optString(it) }
+                        } else listOf(rawUrls?.toString().orEmpty())
+                        urls.filter { it.isNotBlank() }.forEach { url ->
+                            val builder = org.webrtc.PeerConnection.IceServer.builder(url)
+                            if (item.has("username")) builder.setUsername(item.optString("username"))
+                            if (item.has("credential")) builder.setPassword(item.optString("credential"))
+                            add(builder.createIceServer())
+                        }
+                    }
+                }
+                val media = MovnetWebRtcCall(context, call.id, token, scope, localRenderer, remoteRenderer, video) { error = it }
+                engine = media
+                media.start(isCaller, iceServers)
+            } catch (e: Exception) { error = e.message ?: "Не удалось подготовить сетевое соединение" }
         }
     }
     DisposableEffect(engine) { onDispose { engine?.dispose() } }
