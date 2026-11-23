@@ -732,6 +732,18 @@ fun PlayerScreen(movie: Movie, hasPremium: Boolean, onBack: () -> Unit) {
     var playbackError by remember(movie.title) { mutableStateOf<String?>(null) }
     var isBuffering by remember(movie.title) { mutableStateOf(true) }
     var midrollShown by remember(movie.title) { mutableStateOf(false) }
+    val httpFactory = remember(context) {
+        DefaultHttpDataSource.Factory()
+            .setUserAgent("MOVNET Android Video Player")
+            .setConnectTimeoutMs(20000)
+            .setReadTimeoutMs(30000)
+            .setAllowCrossProtocolRedirects(true)
+    }
+    val player = remember(context) {
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
+            .build()
+    }
     LaunchedEffect(movie.title, hasPremium, player) {
         if (!hasPremium) {
             while (!midrollShown) {
@@ -744,18 +756,6 @@ fun PlayerScreen(movie: Movie, hasPremium: Boolean, onBack: () -> Unit) {
                 }
             }
         }
-    }
-    val httpFactory = remember(context) {
-        DefaultHttpDataSource.Factory()
-            .setUserAgent("MOVNET Android Video Player")
-            .setConnectTimeoutMs(20000)
-            .setReadTimeoutMs(30000)
-            .setAllowCrossProtocolRedirects(true)
-    }
-    val player = remember(context) {
-        ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
-            .build()
     }
 
     DisposableEffect(player) {
@@ -1415,11 +1415,6 @@ private fun ChatsScreen(token: String?, onNavigate: (String) -> Unit) {
 @Composable
 private fun DirectChatScreen(friend: MovnetFriend, ownUserId: Int, token: String, onBack: () -> Unit) {
     var activeCall by remember { mutableStateOf<IncomingMovnetCall?>(null) }
-    if (activeCall != null) {
-        DirectCallScreen(call = activeCall!!, token = token, isCaller = true,
-            onEnd = { activeCall = null })
-        return
-    }
     val scope = rememberCoroutineScope()
     var messages by remember { mutableStateOf<List<MovnetMessage>>(emptyList()) }
     var input by remember { mutableStateOf("") }
@@ -1427,6 +1422,12 @@ private fun DirectChatScreen(friend: MovnetFriend, ownUserId: Int, token: String
     var sending by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    if (activeCall != null) {
+        DirectCallScreen(call = activeCall!!, token = token, isCaller = true,
+            onEnd = { activeCall = null })
+        return
+    }
 
     LaunchedEffect(friend.userId, token) {
         while (true) {
