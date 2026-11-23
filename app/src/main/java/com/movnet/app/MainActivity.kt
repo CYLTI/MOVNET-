@@ -171,6 +171,7 @@ fun MovnetApp() {
                 playingMovie != null -> PlayerScreen(movie = playingMovie!!, hasPremium = accountPlan != "Free", onBack = { playingMovie = null })
                 showChats -> ChatsScreen(
                     token = authToken,
+                    catalog = catalogItems,
                     onNavigate = { tab ->
                         selectedTab = tab
                         when (tab) {
@@ -1309,8 +1310,9 @@ private data class MovnetMessage(val id: Int, val mine: Boolean, val body: Strin
 private data class IncomingMovnetCall(val id: Int, val name: String, val mediaType: String)
 
 @Composable
-private fun ChatsScreen(token: String?, onNavigate: (String) -> Unit) {
+private fun ChatsScreen(token: String?, catalog: List<Movie>, onNavigate: (String) -> Unit) {
     val scope = rememberCoroutineScope()
+    var showWatchTogether by remember { mutableStateOf(false) }
     var ownUserId by remember { mutableIntStateOf(0) }
     var friends by remember { mutableStateOf<List<MovnetFriend>>(emptyList()) }
     var requests by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
@@ -1356,6 +1358,11 @@ private fun ChatsScreen(token: String?, onNavigate: (String) -> Unit) {
     if (acceptedCall != null && token != null) {
         DirectCallScreen(call = acceptedCall!!, token = token, isCaller = false,
             onEnd = { acceptedCall = null; incomingCall = null })
+        return
+    }
+
+    if (showWatchTogether && token != null) {
+        WatchTogetherScreen(catalog = catalog, token = token, onBack = { showWatchTogether = false })
         return
     }
 
@@ -1408,6 +1415,14 @@ private fun ChatsScreen(token: String?, onNavigate: (String) -> Unit) {
         } else {
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF30202B)),
+                    shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().clickable { showWatchTogether = true }) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("▶  СОВМЕСТНЫЙ ПРОСМОТР", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("Создай комнату, пригласи друга по коду и смотрите фильм синхронно.", color = Color(0xFFD0D4DC), fontSize = 12.sp)
+                        Text("Открыть комнаты  ›", color = Accent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
                 Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark),
                     shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
