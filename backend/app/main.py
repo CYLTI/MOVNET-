@@ -390,7 +390,7 @@ class DirectCallStatusUpdate(BaseModel):
 
 class DirectCallSignalCreate(BaseModel):
     kind: str = Field(pattern="^(offer|answer|ice)$")
-    payload: str = Field(min_length=1, max_length=16000)
+    payload: str = Field(min_length=1, max_length=32000)
 
 
 class WatchCallSignalCreate(BaseModel):
