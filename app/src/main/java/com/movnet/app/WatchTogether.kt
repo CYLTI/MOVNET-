@@ -37,7 +37,7 @@ fun WatchTogetherScreen(catalog: List<Movie>, token: String, onBack: () -> Unit)
     var roomId by remember { mutableIntStateOf(0) }
     var roomCode by remember { mutableStateOf("") }
     var activeMovie by remember { mutableStateOf<Movie?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var statusError by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
     if (roomId > 0 && activeMovie != null) {
@@ -65,7 +65,7 @@ fun WatchTogetherScreen(catalog: List<Movie>, token: String, onBack: () -> Unit)
                 Spacer(Modifier.width(8.dp))
                 Button(enabled = !busy && codeInput.length >= 6, onClick = {
                     scope.launch {
-                        busy = true; error = null
+                        busy = true; statusError = null
                         try {
                             val joined = MovnetApi.joinWatchRoom(codeInput, token)
                             val id = joined.optInt("room_id")
@@ -74,12 +74,12 @@ fun WatchTogetherScreen(catalog: List<Movie>, token: String, onBack: () -> Unit)
                                 ?: error("Фильм этой комнаты отсутствует в текущем каталоге.")
                             if (movie.streamUrl.isNullOrBlank()) error("У фильма пока нет видеопотока.")
                             roomId = id; roomCode = room.optString("code"); activeMovie = movie
-                        } catch (e: Exception) { error = e.message ?: "Не удалось войти в комнату" }
+                        } catch (e: Exception) { statusError = e.message ?: "Не удалось войти в комнату" }
                         finally { busy = false }
                     }
                 }, colors = ButtonDefaults.buttonColors(containerColor = WatchAccent)) { Text("Войти") }
             }
-            error?.let { Text(it, color = Color(0xFFFF8494), fontSize = 12.sp) }
+            statusError?.let { Text(it, color = Color(0xFFFF8494), fontSize = 12.sp) }
             HorizontalDivider(color = Color(0xFF303746))
             Text("СОЗДАТЬ КОМНАТУ", color = WatchMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             Text("Выбери фильм — MOVNET создаст код, которым можно поделиться с другом.",
@@ -101,7 +101,7 @@ fun WatchTogetherScreen(catalog: List<Movie>, token: String, onBack: () -> Unit)
                                 roomId = created.optInt("room_id")
                                 roomCode = created.optString("code")
                                 activeMovie = movie
-                            } catch (e: Exception) { error = e.message ?: "Не удалось создать комнату" }
+                            } catch (e: Exception) { statusError = e.message ?: "Не удалось создать комнату" }
                             finally { busy = false }
                         }
                     }, colors = ButtonDefaults.buttonColors(containerColor = WatchAccent)) {
