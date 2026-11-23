@@ -116,6 +116,31 @@ object MovnetApi {
         return JSONObject(request("/social/chats/$friendUserId/messages", "POST", payload, token))
     }
 
+
+    suspend fun createWatchRoom(itemId: Int, token: String): JSONObject =
+        JSONObject(request("/watch/rooms", "POST", JSONObject().put("item_id", itemId), token))
+
+    suspend fun joinWatchRoom(code: String, token: String): JSONObject =
+        JSONObject(request("/watch/rooms/join", "POST", JSONObject().put("code", code.trim().uppercase()), token))
+
+    suspend fun loadWatchRoom(roomId: Int, token: String): JSONObject =
+        JSONObject(request("/watch/rooms/$roomId", token = token))
+
+    suspend fun updateWatchRoomState(roomId: Int, positionMs: Long, isPlaying: Boolean, version: Int, token: String): JSONObject =
+        JSONObject(request("/watch/rooms/$roomId/state", "PUT",
+            JSONObject().put("playback_position", (positionMs / 1000L).toInt().coerceAtLeast(0))
+                .put("is_playing", isPlaying).put("expected_version", version), token))
+
+    suspend fun leaveWatchRoom(roomId: Int, token: String) {
+        request("/watch/rooms/$roomId/leave", "POST", JSONObject(), token)
+    }
+
+    suspend fun loadWatchRoomMessages(roomId: Int, afterId: Int, token: String): JSONArray =
+        JSONArray(request("/watch/rooms/$roomId/messages?after_id=$afterId", token = token))
+
+    suspend fun sendWatchRoomMessage(roomId: Int, body: String, token: String): JSONObject =
+        JSONObject(request("/watch/rooms/$roomId/messages", "POST", JSONObject().put("body", body.trim()), token))
+
     suspend fun sendCallSignal(roomId: Int, recipientUserId: Int, kind: String, payload: String, token: String): JSONObject {
         val body = JSONObject().put("recipient_user_id", recipientUserId).put("kind", kind).put("payload", payload)
         return JSONObject(request("/watch/rooms/$roomId/call/signals", "POST", body, token))
