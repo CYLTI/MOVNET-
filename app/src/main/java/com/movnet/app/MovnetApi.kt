@@ -129,6 +129,9 @@ object MovnetApi {
         return JSONObject(request("/social/calls", "POST", body, token))
     }
 
+    suspend fun loadCallIceServers(token: String): JSONArray =
+        JSONObject(request("/social/calls/ice-servers", token = token)).optJSONArray("ice_servers") ?: JSONArray()
+
     suspend fun loadIncomingCalls(token: String): JSONArray =
         JSONArray(request("/social/calls/incoming", token = token))
 
