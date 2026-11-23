@@ -31,6 +31,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -151,7 +152,7 @@ fun MovnetApp() {
     var selectedType by remember { mutableStateOf("Всё") }
     var selectedGenre by remember { mutableStateOf("Все жанры") }
     var premiumFilter by remember { mutableStateOf("Все") }
-    var selectedTab by remember { mutableStateOf("Каталог") }
+    var selectedTab by remember { mutableStateOf("Главная") }
     // Избранное сохраняется локально и не пропадает после перезапуска приложения.
     val favoriteTitles = remember(preferences) {
         mutableStateListOf<String>().apply {
@@ -373,19 +374,23 @@ fun CatalogScreen(
                         color = Muted, modifier = Modifier.fillMaxWidth().padding(24.dp))
                 }
             } else {
-                items(filtered) { item ->
+                itemsIndexed(filtered) { index, item ->
                     MovieRow(
                         movie = item,
                         isFavorite = favoriteTitles.contains(item.title),
                         onClick = { onMovie(item) },
                         onFavorite = { onFavoriteToggle(item.title) }
                     )
+                    // Дополнительный рекламный блок после шести карточек; Premium его не видит.
+                    if (!hasPremium && index == 5) {
+                        item { MovnetAdBanner() }
+                    }
                 }
             }
         }
 
         NavigationBar(containerColor = SurfaceDark, contentColor = Color.White) {
-            listOf("Главная", "Каталог", "Чаты", "Избранное", "Профиль").forEach { tab ->
+            listOf("Главная", "Чаты", "Избранное", "Профиль").forEach { tab ->
                 NavigationBarItem(
                     selected = selectedTab == tab,
                     onClick = { if (tab == "Чаты") onChats() else { onTab(tab); if (tab == "Профиль") onAccount() } },
@@ -1410,7 +1415,7 @@ private fun ChatsScreen(token: String?, onNavigate: (String) -> Unit) {
             }
         }
         NavigationBar(containerColor = SurfaceDark, contentColor = Color.White) {
-            listOf("Главная", "Каталог", "Чаты", "Избранное", "Профиль").forEach { tab ->
+            listOf("Главная", "Чаты", "Избранное", "Профиль").forEach { tab ->
                 NavigationBarItem(selected = tab == "Чаты", onClick = { if (tab != "Чаты") onNavigate(tab) },
                     icon = { Text(when(tab) { "Главная" -> "⌂"; "Каталог" -> "▦"; "Чаты" -> "▤"; "Избранное" -> "♡"; else -> "●" }, fontSize = 20.sp) },
                     label = { Text(tab, fontSize = 10.sp) },
