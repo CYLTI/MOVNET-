@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
@@ -21,6 +22,9 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -45,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.webrtc.SurfaceViewRenderer
 
 private val Background = Color(0xFF090B10)
 private val SurfaceDark = Color(0xFF171B25)
@@ -1184,6 +1189,7 @@ fun AccountScreen(
 
 private data class MovnetFriend(val name: String, val publicId: String, val userId: Int)
 private data class MovnetMessage(val id: Int, val mine: Boolean, val body: String)
+private data class IncomingMovnetCall(val id: Int, val name: String, val mediaType: String)
 
 @Composable
 private fun ChatsScreen(token: String?, onNavigate: (String) -> Unit) {
@@ -1196,6 +1202,8 @@ private fun ChatsScreen(token: String?, onNavigate: (String) -> Unit) {
     var status by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
+    var incomingCall by remember { mutableStateOf<IncomingMovnetCall?>(null) }
+    var acceptedCall by remember { mutableStateOf<IncomingMovnetCall?>(null) }
 
     suspend fun refresh() {
         val activeToken = token ?: return
@@ -1216,12 +1224,53 @@ private fun ChatsScreen(token: String?, onNavigate: (String) -> Unit) {
         if (token == null) { loading = false; status = "Войди в аккаунт, чтобы пользоваться чатами."; return@LaunchedEffect }
         try { refresh() } catch (e: Exception) { status = e.message ?: "Не удалось загрузить чаты" }
         finally { loading = false }
+        while (true) {
+            try {
+                val calls = MovnetApi.loadIncomingCalls(token)
+                if (calls.length() > 0 && acceptedCall == null) {
+                    val item = calls.getJSONObject(0)
+                    incomingCall = IncomingMovnetCall(item.optInt("call_id"), item.optString("caller_name"), item.optString("media_type", "audio"))
+                }
+            } catch (_: Exception) { }
+            kotlinx.coroutines.delay(4000)
+        }
+    }
+
+    if (acceptedCall != null && token != null) {
+        DirectCallScreen(call = acceptedCall!!, token = token, isCaller = false,
+            onEnd = { acceptedCall = null; incomingCall = null })
+        return
     }
 
     if (selectedFriend != null && token != null) {
         DirectChatScreen(friend = selectedFriend!!, ownUserId = ownUserId, token = token,
             onBack = { selectedFriend = null })
         return
+    }
+
+    incomingCall?.let { call ->
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text(if (call.mediaType == "video") "Видеозвонок" else "Входящий звонок") },
+            text = { Text(call.name + " звонит тебе") },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        try {
+                            MovnetApi.updateDirectCallStatus(call.id, "accepted", token!!)
+                            acceptedCall = call
+                            incomingCall = null
+                        } catch (e: Exception) { status = e.message ?: "Не удалось принять звонок"; incomingCall = null }
+                    }
+                }) { Text("Принять", color = Accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    scope.launch { runCatching { MovnetApi.updateDirectCallStatus(call.id, "rejected", token!!) }; incomingCall = null }
+                }) { Text("Отклонить", color = Muted) }
+            },
+            containerColor = SurfaceDark
+        )
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -1325,6 +1374,12 @@ private fun ChatsScreen(token: String?, onNavigate: (String) -> Unit) {
 
 @Composable
 private fun DirectChatScreen(friend: MovnetFriend, ownUserId: Int, token: String, onBack: () -> Unit) {
+    var activeCall by remember { mutableStateOf<IncomingMovnetCall?>(null) }
+    if (activeCall != null) {
+        DirectCallScreen(call = activeCall!!, token = token, isCaller = true,
+            onEnd = { activeCall = null })
+        return
+    }
     val scope = rememberCoroutineScope()
     var messages by remember { mutableStateOf<List<MovnetMessage>>(emptyList()) }
     var input by remember { mutableStateOf("") }
@@ -1364,6 +1419,22 @@ private fun DirectChatScreen(friend: MovnetFriend, ownUserId: Int, token: String
                 Text(friend.name.ifBlank { "Пользователь MOVNET" }, fontWeight = FontWeight.Bold)
                 Text("MOVNET • личный чат", color = Muted, fontSize = 11.sp)
             }
+            IconButton(onClick = {
+                scope.launch {
+                    try {
+                        val result = MovnetApi.createDirectCall(friend.userId, "audio", token)
+                        activeCall = IncomingMovnetCall(result.optInt("call_id"), friend.name, "audio")
+                    } catch (e: Exception) { error = e.message ?: "Не удалось начать звонок" }
+                }
+            }) { Icon(Icons.Default.Call, contentDescription = "Аудиозвонок", tint = Accent) }
+            IconButton(onClick = {
+                scope.launch {
+                    try {
+                        val result = MovnetApi.createDirectCall(friend.userId, "video", token)
+                        activeCall = IncomingMovnetCall(result.optInt("call_id"), friend.name, "video")
+                    } catch (e: Exception) { error = e.message ?: "Не удалось начать видеозвонок" }
+                }
+            }) { Icon(Icons.Default.Videocam, contentDescription = "Видеозвонок", tint = Accent) }
             Text("⋮", color = Muted, fontSize = 24.sp, modifier = Modifier.padding(horizontal = 8.dp))
         }
         if (loading && messages.isEmpty()) {
@@ -1417,3 +1488,86 @@ private fun DirectChatScreen(friend: MovnetFriend, ownUserId: Int, token: String
     }
 }
 
+
+
+@Composable
+private fun DirectCallScreen(call: IncomingMovnetCall, token: String, isCaller: Boolean, onEnd: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val video = call.mediaType == "video"
+    var callStatus by remember { mutableStateOf(if (isCaller) "ringing" else "accepted") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var micEnabled by remember { mutableStateOf(true) }
+    var cameraEnabled by remember { mutableStateOf(true) }
+    var engine by remember { mutableStateOf<MovnetWebRtcCall?>(null) }
+    var localRenderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
+    var remoteRenderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
+    var permissionReady by remember { mutableStateOf(false) }
+    val permissions = if (video) arrayOf(android.Manifest.permission.RECORD_AUDIO, android.Manifest.permission.CAMERA)
+        else arrayOf(android.Manifest.permission.RECORD_AUDIO)
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        permissionReady = permissions.all { result[it] == true }
+        if (!permissionReady) error = "Разреши доступ к микрофону" + if (video) " и камере в настройках приложения." else " в настройках приложения."
+    }
+    LaunchedEffect(Unit) {
+        permissionReady = permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
+        if (!permissionReady) permissionLauncher.launch(permissions)
+    }
+    LaunchedEffect(call.id) {
+        while (true) {
+            try {
+                val remoteStatus = MovnetApi.loadDirectCall(call.id, token).optString("status")
+                callStatus = remoteStatus
+                if (remoteStatus == "ended" || remoteStatus == "rejected") { onEnd(); break }
+            } catch (e: Exception) { error = e.message ?: "Не удалось проверить звонок" }
+            kotlinx.coroutines.delay(1800)
+        }
+    }
+    LaunchedEffect(permissionReady, callStatus, localRenderer, remoteRenderer) {
+        if (permissionReady && callStatus == "accepted" && engine == null && (!video || (localRenderer != null && remoteRenderer != null))) {
+            val media = MovnetWebRtcCall(context, call.id, token, scope, localRenderer, remoteRenderer, video) { error = it }
+            engine = media
+            media.start(isCaller)
+        }
+    }
+    DisposableEffect(engine) { onDispose { engine?.dispose() } }
+    Column(Modifier.fillMaxSize().background(Color(0xFF080A10)).navigationBarsPadding().statusBarsPadding(),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(if (video) "MOVNET VIDEO" else "MOVNET CALL", color = Accent, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+            Text(when(callStatus) { "ringing" -> "Вызов…"; "accepted" -> "На связи"; "rejected" -> "Отклонён"; else -> "Завершён" }, color = Muted, fontSize = 12.sp)
+        }
+        if (video) {
+            Box(Modifier.weight(1f).fillMaxWidth().padding(10.dp).background(Color.Black, RoundedCornerShape(22.dp))) {
+                AndroidView(factory = { ctx -> SurfaceViewRenderer(ctx).also { remoteRenderer = it } }, modifier = Modifier.fillMaxSize())
+                AndroidView(factory = { ctx -> SurfaceViewRenderer(ctx).also { localRenderer = it } },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(112.dp, 160.dp))
+                if (callStatus == "ringing") Text("Ожидаем ответа…", color = Color.White, modifier = Modifier.align(Alignment.Center))
+            }
+        } else {
+            Spacer(Modifier.weight(1f))
+            Box(Modifier.size(128.dp).background(Brush.linearGradient(listOf(Accent, Color(0xFF7045C5))), RoundedCornerShape(40.dp)),
+                contentAlignment = Alignment.Center) { Text(call.name.firstOrNull()?.uppercase() ?: "M", fontSize = 52.sp, fontWeight = FontWeight.Bold) }
+            Text(call.name, color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 18.dp))
+            Text(if (callStatus == "ringing") "Ожидание ответа…" else "Аудиозвонок MOVNET", color = Muted, modifier = Modifier.padding(top = 6.dp))
+            Spacer(Modifier.weight(1f))
+        }
+        error?.let { Text(it, color = Color(0xFFFF8494), fontSize = 12.sp, modifier = Modifier.padding(12.dp)) }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+            FilledTonalIconButton(onClick = { micEnabled = !micEnabled; engine?.setMicrophoneEnabled(micEnabled) },
+                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = SurfaceDark)) { Text(if (micEnabled) "🎙" else "🔇") }
+            if (video) {
+                FilledTonalIconButton(onClick = { cameraEnabled = !cameraEnabled; engine?.setCameraEnabled(cameraEnabled) },
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = SurfaceDark)) { Text(if (cameraEnabled) "📷" else "🚫") }
+                FilledTonalIconButton(onClick = { engine?.switchCamera() },
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = SurfaceDark)) { Text("🔄") }
+            }
+            IconButton(onClick = {
+                scope.launch { runCatching { MovnetApi.updateDirectCallStatus(call.id, "ended", token) }; onEnd() }
+            }, modifier = Modifier.size(64.dp).background(Color(0xFFE53950), RoundedCornerShape(50))) {
+                Text("☎", color = Color.White, fontSize = 26.sp)
+            }
+        }
+    }
+}
