@@ -38,17 +38,10 @@ def main():
     incoming_requests = request("/social/friend-requests", token=token_b)
     request_id = incoming_requests[0]["request_id"]
     request("/social/friend-requests/" + str(request_id) + "/accept", "POST", token_b, {})
-    created = request("/social/calls", "POST", token_a, {
-        "recipient_user_id": 2, "media_type": "audio"
-    })
-    # Resolve the recipient's real numeric user ID through the friend list.
     friend_b = request("/social/friends", token=token_a)[0]["user_id"]
-    if created.get("callee_user_id") != 2:
-        # The first call above intentionally tests validation; create using the real friend ID.
-        request("/social/calls/" + str(created["call_id"]) + "/status", "PUT", token_a, {"status": "ended"})
-        created = request("/social/calls", "POST", token_a, {
-            "recipient_user_id": friend_b, "media_type": "audio"
-        })
+    created = request("/social/calls", "POST", token_a, {
+        "recipient_user_id": friend_b, "media_type": "audio"
+    })
     call_id = created["call_id"]
     calls = request("/social/calls/incoming", token=token_b)
     assert any(item["call_id"] == call_id for item in calls), "Incoming call not listed"
