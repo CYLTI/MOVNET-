@@ -2,6 +2,7 @@ package com.movnet.app
 
 import android.os.Bundle
 import android.content.Context
+import android.content.Intent
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -200,7 +202,11 @@ fun MovnetApp() {
                     },
                     onBack = { showAccount = false }
                 )
-                showPremium -> PremiumScreen(onBack = { showPremium = false })
+                showPremium -> PremiumScreen(
+                    token = authToken,
+                    onBack = { showPremium = false },
+                    onActivated = { plan -> accountPlan = plan; showPremium = false }
+                )
                 selectedMovie != null -> MovieDetails(
                     movie = selectedMovie!!,
                     hasPremium = accountPlan != "Free",
@@ -649,9 +655,60 @@ fun MovieDetails(
 }
 
 @Composable
-fun PremiumScreen(onBack: () -> Unit) {
+fun PremiumScreen(token: String?, onBack: () -> Unit, onActivated: (String) -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var selectedPlan by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var paymentId by remember { mutableIntStateOf(0) }
+    var paymentMessage by remember { mutableStateOf<String?>(null) }
+
+    fun startCheckout(plan: String) {
+        if (token == null) {
+            paymentMessage = "Сначала войди или зарегистрируй аккаунт MOVNET."
+            return
+        }
+        if (busy) return
+        selectedPlan = plan
+        busy = true
+        paymentMessage = "Создаём защищённый платёж…"
+        scope.launch {
+            try {
+                val checkout = MovnetApi.createPayment(plan, token)
+                paymentId = checkout.getInt("payment_id")
+                val confirmationUrl = checkout.getString("confirmation_url")
+                paymentMessage = "Оплати в защищённой форме. После оплаты вернись сюда и нажми «Проверить оплату»."
+                context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(confirmationUrl)))
+            } catch (e: Exception) {
+                paymentMessage = e.message ?: "Не удалось создать платёж."
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    fun checkPayment() {
+        if (token == null || paymentId <= 0 || busy) return
+        busy = true
+        scope.launch {
+            try {
+                val result = MovnetApi.getPaymentStatus(paymentId, token)
+                when (result.optString("status")) {
+                    "succeeded" -> {
+                        val plan = result.optString("plan", selectedPlan)
+                        paymentMessage = "Оплата подтверждена! Premium активирован ✓"
+                        onActivated(plan)
+                    }
+                    "canceled", "failed" -> paymentMessage = "Платёж не завершён. Можно попробовать ещё раз."
+                    else -> paymentMessage = "Платёж пока ожидает подтверждения. Попробуй проверить ещё раз."
+                }
+            } catch (e: Exception) {
+                paymentMessage = e.message ?: "Не удалось проверить платёж."
+            } finally {
+                busy = false
+            }
+        }
+    }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -660,46 +717,40 @@ fun PremiumScreen(onBack: () -> Unit) {
         Text("‹  Назад", color = Muted, modifier = Modifier.clickable { onBack() })
         Text("MOVNET", color = Accent, fontSize = 17.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
         Text("Выбери свою подписку", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
-        Text("Прокрути список, чтобы сравнить все четыре тарифа.", color = Muted, fontSize = 13.sp)
+        Text("Оплата откроется на защищённой странице платёжного провайдера.", color = Muted, fontSize = 13.sp)
 
         SubscriptionCard(
             "Premium", "199 ₽ / месяц", "До Full HD (1080p)",
             listOf("Без рекламных пауз", "Premium-каталог", "Офлайн-загрузки"),
             selected = selectedPlan == "Premium",
-            onSelect = {
-                selectedPlan = "Premium"
-                Toast.makeText(context, "Тариф Premium выбран. Оплата пока не подключена.", Toast.LENGTH_LONG).show()
-            }
+            onSelect = { startCheckout("Premium") }
         )
         SubscriptionCard(
             "Premium+", "300 ₽ / месяц", "До 2K / 4K*",
             listOf("Все возможности Premium", "Повышенное качество", "Офлайн-загрузки"),
             selected = selectedPlan == "Premium+",
-            onSelect = {
-                selectedPlan = "Premium+"
-                Toast.makeText(context, "Тариф Premium+ выбран. Оплата пока не подключена.", Toast.LENGTH_LONG).show()
-            }
+            onSelect = { startCheckout("Premium+") }
         )
         SubscriptionCard(
             "Суперподписка — стандарт", "2 000 ₽ / год", "До Full HD (без 2K/4K)",
             listOf("Подписка на 12 месяцев", "Без рекламы", "Premium-каталог и загрузки"),
             selected = selectedPlan == "Суперподписка — стандарт",
-            onSelect = {
-                selectedPlan = "Суперподписка — стандарт"
-                Toast.makeText(context, "Годовой тариф выбран. Оплата пока не подключена.", Toast.LENGTH_LONG).show()
-            }
+            onSelect = { startCheckout("Суперподписка — стандарт") }
         )
         SubscriptionCard(
             "Суперподписка — 2K/4K", "2 500 ₽ / год", "До 2K / 4K*",
             listOf("Подписка на 12 месяцев", "Без рекламы", "Premium-каталог и загрузки"),
             selected = selectedPlan == "Суперподписка — 2K/4K",
-            onSelect = {
-                selectedPlan = "Суперподписка — 2K/4K"
-                Toast.makeText(context, "Годовой тариф 2K/4K выбран. Оплата пока не подключена.", Toast.LENGTH_LONG).show()
-            }
+            onSelect = { startCheckout("Суперподписка — 2K/4K") }
         )
+        if (paymentId > 0) {
+            OutlinedButton(onClick = { checkPayment() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                Text(if (busy) "Проверяем…" else "Проверить оплату")
+            }
+        }
+        paymentMessage?.let { Text(it, color = if (it.contains("подтверждена")) Color(0xFF65D6A2) else Muted, fontSize = 12.sp) }
         Text(
-            "* Качество зависит от исходного видео, устройства и интернета. Выбор тарифа пока демонстрационный: платёжный провайдер и серверная активация не подключены.",
+            "* Качество зависит от исходного видео, устройства и интернета. Подписка активируется только после подтверждения успешного платежа сервером.",
             color = Muted, fontSize = 11.sp, lineHeight = 16.sp
         )
     }
