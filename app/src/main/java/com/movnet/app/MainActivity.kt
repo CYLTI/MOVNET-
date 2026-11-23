@@ -88,6 +88,7 @@ private val openLicensedFallback = listOf(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MovnetAds.initialize(this)
         setContent { MovnetApp() }
     }
 }
@@ -152,7 +153,7 @@ fun MovnetApp() {
     )) {
         Surface(Modifier.fillMaxSize(), color = Background) {
             when {
-                playingMovie != null -> PlayerScreen(movie = playingMovie!!, onBack = { playingMovie = null })
+                playingMovie != null -> PlayerScreen(movie = playingMovie!!, hasPremium = accountPlan != "Free", onBack = { playingMovie = null })
                 showChats -> ChatsScreen(
                     token = authToken,
                     onNavigate = { tab ->
@@ -197,11 +198,21 @@ fun MovnetApp() {
                     },
                     onBack = { selectedMovie = null },
                     onPremium = { showPremium = true },
-                    onPlay = { playingMovie = selectedMovie }
+                    onPlay = {
+                        val movieToPlay = selectedMovie
+                        if (movieToPlay != null) {
+                            if (accountPlan != "Free") playingMovie = movieToPlay
+                            else {
+                                val host = context as? ComponentActivity
+                                if (host != null) MovnetAds.showPreRoll(host) { playingMovie = movieToPlay }
+                                else playingMovie = movieToPlay
+                            }
+                        }
+                    }
                 )
                 else -> CatalogScreen(
                     query = query, onQuery = { query = it },
-                    catalog = catalogItems, catalogLoading = catalogLoading, catalogError = catalogError,
+                    catalog = catalogItems, catalogLoading = catalogLoading, catalogError = catalogError, hasPremium = accountPlan != "Free",
                     selectedType = selectedType, onType = { selectedType = it },
                     selectedGenre = selectedGenre, onGenre = { selectedGenre = it },
                     premiumFilter = premiumFilter, onPremiumFilter = { premiumFilter = it },
@@ -221,7 +232,7 @@ fun MovnetApp() {
 @Composable
 fun CatalogScreen(
     query: String, onQuery: (String) -> Unit,
-    catalog: List<Movie>, catalogLoading: Boolean, catalogError: String?,
+    catalog: List<Movie>, catalogLoading: Boolean, catalogError: String?, hasPremium: Boolean,
     selectedType: String, onType: (String) -> Unit,
     selectedGenre: String, onGenre: (String) -> Unit,
     premiumFilter: String, onPremiumFilter: (String) -> Unit,
@@ -329,6 +340,16 @@ fun CatalogScreen(
 
         // Прокручивается только список карточек; фильтры и нижняя навигация остаются на месте.
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 12.dp)) {
+            if (!hasPremium) {
+                item {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp)
+                        .background(SurfaceDark, RoundedCornerShape(14.dp)).padding(8.dp)) {
+                        Text("РЕКЛАМА", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
+                        AndroidView(factory = { ctx -> MovnetAds.createTestBanner(ctx) },
+                            modifier = Modifier.fillMaxWidth().height(50.dp))
+                    }
+                }
+            }
             if (catalogLoading && catalog.isEmpty()) {
                 item { CircularProgressIndicator(color = Accent, modifier = Modifier.padding(24.dp)) }
             } else if (catalogError != null && catalog.isEmpty()) {
@@ -691,7 +712,7 @@ private fun SubscriptionCard(
 }
 
 @Composable
-fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
+fun PlayerScreen(movie: Movie, hasPremium: Boolean, onBack: () -> Unit) {
     val context = LocalContext.current
     // Compose may provide a ContextThemeWrapper rather than the Activity itself.
     val activity = remember(context) {
@@ -705,6 +726,20 @@ fun PlayerScreen(movie: Movie, onBack: () -> Unit) {
     var controlsVisible by remember { mutableStateOf(true) }
     var playbackError by remember(movie.title) { mutableStateOf<String?>(null) }
     var isBuffering by remember(movie.title) { mutableStateOf(true) }
+    var midrollShown by remember(movie.title) { mutableStateOf(false) }
+    LaunchedEffect(movie.title, hasPremium, player) {
+        if (!hasPremium) {
+            while (!midrollShown) {
+                kotlinx.coroutines.delay(3000)
+                if (player.isPlaying && player.currentPosition >= 600_000L) {
+                    midrollShown = true
+                    player.pause()
+                    if (activity != null) MovnetAds.showPreRoll(activity) { player.play() }
+                    else player.play()
+                }
+            }
+        }
+    }
     val httpFactory = remember(context) {
         DefaultHttpDataSource.Factory()
             .setUserAgent("MOVNET Android Video Player")
