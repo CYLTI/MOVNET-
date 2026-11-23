@@ -27,6 +27,7 @@ jobs:
             movnet-api:ci
           for attempt in $(seq 1 20); do
             if curl --fail --silent http://127.0.0.1:8000/health; then
+              python backend/smoke_calls.py
               docker stop movnet-api-ci
               exit 0
             fi
