@@ -95,7 +95,7 @@ fun WatchTogetherScreen(catalog: List<Movie>, token: String, onBack: () -> Unit)
                     }
                     Button(enabled = !busy, onClick = {
                         scope.launch {
-                            busy = true; error = null
+                            busy = true; statusError = null
                             try {
                                 val created = MovnetApi.createWatchRoom(movie.id, token)
                                 roomId = created.optInt("room_id")
