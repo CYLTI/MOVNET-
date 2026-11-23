@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     smtp_from_email: str = ""
     resend_api_key: str = ""
     resend_from_email: str = "MOVNET <onboarding@resend.dev>"
+    turn_urls: str = ""
+    turn_username: str = ""
+    turn_credential: str = ""
     account_recovery_key: str = ""
     account_recovery_email: str = ""
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -807,6 +810,15 @@ def send_direct_message(friend_user_id: int, body: DirectMessageCreate, user: Us
     message = DirectMessage(sender_id=user.id, receiver_id=friend_user_id, body=body.body.strip())
     db.add(message); db.commit(); db.refresh(message)
     return {"id": message.id, "sender_id": message.sender_id, "body": message.body, "created_at": message.created_at}
+
+
+@app.get("/social/calls/ice-servers")
+def get_call_ice_servers(user: User = Depends(current_user)):
+    servers = [{"urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]}]
+    turn_urls = [value.strip() for value in settings.turn_urls.split(",") if value.strip()]
+    if turn_urls and settings.turn_username and settings.turn_credential:
+        servers.append({"urls": turn_urls, "username": settings.turn_username, "credential": settings.turn_credential})
+    return {"ice_servers": servers, "turn_configured": len(servers) > 1}
 
 
 @app.post("/social/calls", status_code=201)
