@@ -156,6 +156,14 @@ object MovnetApi {
 
     suspend fun loadEntitlements(token: String): JSONObject = JSONObject(request("/entitlements", token = token))
 
+    suspend fun createPayment(plan: String, token: String): JSONObject {
+        val body = JSONObject().put("plan", plan)
+        return JSONObject(request("/payments/create", "POST", body, token))
+    }
+
+    suspend fun getPaymentStatus(paymentId: Int, token: String): JSONObject =
+        JSONObject(request("/payments/$paymentId", token = token))
+
     suspend fun updateProfile(token: String, displayName: String): JSONObject {
         val body = JSONObject().put("display_name", displayName.trim())
         return JSONObject(request("/me", "PUT", body, token))
