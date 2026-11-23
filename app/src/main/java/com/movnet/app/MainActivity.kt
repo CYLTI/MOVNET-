@@ -94,6 +94,7 @@ fun MovnetApp() {
     var selectedMovie by remember { mutableStateOf<Movie?>(null) }
     var playingMovie by remember { mutableStateOf<Movie?>(null) }
     var showAccount by remember { mutableStateOf(false) }
+    var showChats by remember { mutableStateOf(false) }
     var accountEmail by remember { mutableStateOf("") }
     var accountName by remember { mutableStateOf("") }
     var accountCreatedAt by remember { mutableStateOf("") }
@@ -147,6 +148,16 @@ fun MovnetApp() {
         Surface(Modifier.fillMaxSize(), color = Background) {
             when {
                 playingMovie != null -> PlayerScreen(movie = playingMovie!!, onBack = { playingMovie = null })
+                showChats -> ChatsScreen(
+                    token = authToken,
+                    onNavigate = { tab ->
+                        selectedTab = tab
+                        when (tab) {
+                            "Профиль" -> { showChats = false; showAccount = true }
+                            "Каталог", "Главная", "Избранное" -> showChats = false
+                        }
+                    }
+                )
                 showAccount -> AccountScreen(
                     email = accountEmail, displayName = accountName, createdAt = accountCreatedAt,
                     plan = accountPlan, loggedIn = loggedIn, isCreator = accountIsCreator, publicId = socialPublicId, authToken = authToken,
@@ -190,6 +201,7 @@ fun MovnetApp() {
                     selectedGenre = selectedGenre, onGenre = { selectedGenre = it },
                     premiumFilter = premiumFilter, onPremiumFilter = { premiumFilter = it },
                     selectedTab = selectedTab, onTab = { selectedTab = it },
+                    onChats = { selectedTab = "Чаты"; showChats = true },
                     favoriteTitles = favoriteTitles, onFavoriteToggle = { title ->
                         if (favoriteTitles.contains(title)) favoriteTitles.remove(title) else favoriteTitles.add(title)
                         preferences.edit().putStringSet("favorite_titles", favoriteTitles.toSet()).apply()
@@ -208,7 +220,7 @@ fun CatalogScreen(
     selectedType: String, onType: (String) -> Unit,
     selectedGenre: String, onGenre: (String) -> Unit,
     premiumFilter: String, onPremiumFilter: (String) -> Unit,
-    selectedTab: String, onTab: (String) -> Unit,
+    selectedTab: String, onTab: (String) -> Unit, onChats: () -> Unit,
     favoriteTitles: List<String>, onFavoriteToggle: (String) -> Unit,
     onMovie: (Movie) -> Unit, onPremium: () -> Unit, onAccount: () -> Unit
 ) {
@@ -334,16 +346,17 @@ fun CatalogScreen(
         }
 
         NavigationBar(containerColor = SurfaceDark, contentColor = Color.White) {
-            listOf("Главная", "Каталог", "Избранное", "Профиль").forEach { tab ->
+            listOf("Главная", "Каталог", "Чаты", "Избранное", "Профиль").forEach { tab ->
                 NavigationBarItem(
                     selected = selectedTab == tab,
-                    onClick = { onTab(tab); if (tab == "Профиль") onAccount() },
+                    onClick = { if (tab == "Чаты") onChats() else { onTab(tab); if (tab == "Профиль") onAccount() } },
                     icon = {
                         Text(
                             when (tab) {
                                 "Главная" -> "⌂"
                                 "Каталог" -> "▦"
                                 "Избранное" -> "♡"
+                                "Чаты" -> "▤"
                                 else -> "●"
                             },
                             fontSize = 20.sp
@@ -1167,3 +1180,240 @@ fun AccountScreen(
         }
     }
 }
+
+
+private data class MovnetFriend(val name: String, val publicId: String, val userId: Int)
+private data class MovnetMessage(val id: Int, val mine: Boolean, val body: String)
+
+@Composable
+private fun ChatsScreen(token: String?, onNavigate: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var ownUserId by remember { mutableIntStateOf(0) }
+    var friends by remember { mutableStateOf<List<MovnetFriend>>(emptyList()) }
+    var requests by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
+    var selectedFriend by remember { mutableStateOf<MovnetFriend?>(null) }
+    var publicIdInput by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var busy by remember { mutableStateOf(false) }
+
+    suspend fun refresh() {
+        val activeToken = token ?: return
+        ownUserId = MovnetApi.loadProfile(activeToken).optInt("id")
+        val friendJson = MovnetApi.loadFriends(activeToken)
+        friends = (0 until friendJson.length()).map { i ->
+            val item = friendJson.getJSONObject(i)
+            MovnetFriend(item.optString("display_name"), item.optString("public_id"), item.optInt("user_id"))
+        }
+        val requestJson = MovnetApi.loadFriendRequests(activeToken)
+        requests = (0 until requestJson.length()).map { i ->
+            val item = requestJson.getJSONObject(i)
+            item.optInt("request_id") to (item.optString("display_name") + " • " + item.optString("public_id"))
+        }
+    }
+
+    LaunchedEffect(token) {
+        if (token == null) { loading = false; status = "Войди в аккаунт, чтобы пользоваться чатами."; return@LaunchedEffect }
+        try { refresh() } catch (e: Exception) { status = e.message ?: "Не удалось загрузить чаты" }
+        finally { loading = false }
+    }
+
+    if (selectedFriend != null && token != null) {
+        DirectChatScreen(friend = selectedFriend!!, ownUserId = ownUserId, token = token,
+            onBack = { selectedFriend = null })
+        return
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Column {
+                Text("MOVNET", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                Text("Чаты", fontSize = 29.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            TextButton(onClick = { scope.launch { loading = true; status = null
+                try { refresh() } catch (e: Exception) { status = e.message ?: "Ошибка обновления" }
+                finally { loading = false } } }) { Text("Обновить", color = Accent) }
+        }
+        if (token == null) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text(status ?: "Войди в аккаунт, чтобы открыть сообщения.", color = Muted)
+            }
+        } else {
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                    shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("НАЙТИ ДРУГА", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        OutlinedTextField(value = publicIdInput,
+                            onValueChange = { publicIdInput = it.uppercase().filter(Char::isLetterOrDigit).take(12) },
+                            label = { Text("MOVNET ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        Button(enabled = !busy && publicIdInput.length >= 6, onClick = {
+                            scope.launch {
+                                busy = true; status = null
+                                try {
+                                    val result = MovnetApi.sendFriendRequest(publicIdInput, token)
+                                    status = result.optString("message", "Заявка отправлена")
+                                    publicIdInput = ""
+                                    refresh()
+                                } catch (e: Exception) { status = e.message ?: "Не удалось отправить заявку" }
+                                finally { busy = false }
+                            }
+                        }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Accent)) {
+                            Text(if (busy) "Отправляем…" else "Добавить по ID")
+                        }
+                    }
+                }
+                if (requests.isNotEmpty()) {
+                    Text("ЗАЯВКИ В ДРУЗЬЯ", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    requests.forEach { (requestId, label) ->
+                        Row(Modifier.fillMaxWidth().background(SurfaceDark, RoundedCornerShape(14.dp)).padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text(label, Modifier.weight(1f), fontSize = 13.sp)
+                            TextButton(onClick = { scope.launch {
+                                try { MovnetApi.acceptFriendRequest(requestId, token); refresh(); status = "Теперь вы друзья!" }
+                                catch (e: Exception) { status = e.message ?: "Не удалось принять заявку" }
+                            } }) { Text("Принять", color = Accent) }
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("СООБЩЕНИЯ", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Text("${friends.size} друзей", color = Muted, fontSize = 11.sp)
+                }
+                if (loading && friends.isEmpty()) {
+                    Box(Modifier.fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Accent)
+                    }
+                } else if (friends.isEmpty()) {
+                    Text("Здесь появятся ваши переписки. Добавь друга по его MOVNET ID, чтобы начать общение.",
+                        color = Muted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
+                } else {
+                    friends.forEach { friend ->
+                        Row(Modifier.fillMaxWidth().background(SurfaceDark, RoundedCornerShape(16.dp))
+                            .clickable { selectedFriend = friend }.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(48.dp).background(Brush.linearGradient(listOf(Accent, Color(0xFF7045C5))),
+                                RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+                                Text(friend.name.firstOrNull()?.uppercase() ?: "M", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text(friend.name.ifBlank { "Пользователь MOVNET" }, fontWeight = FontWeight.SemiBold)
+                                Text(friend.publicId, color = Muted, fontSize = 11.sp)
+                            }
+                            Text("Открыть ›", color = Accent, fontSize = 12.sp)
+                        }
+                    }
+                }
+                status?.let { Text(it, color = if (it.contains("ошиб", true) || it.contains("не удалось", true)) Color(0xFFFF7A8A) else Muted, fontSize = 12.sp) }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+        NavigationBar(containerColor = SurfaceDark, contentColor = Color.White) {
+            listOf("Главная", "Каталог", "Чаты", "Избранное", "Профиль").forEach { tab ->
+                NavigationBarItem(selected = tab == "Чаты", onClick = { if (tab != "Чаты") onNavigate(tab) },
+                    icon = { Text(when(tab) { "Главная" -> "⌂"; "Каталог" -> "▦"; "Чаты" -> "▤"; "Избранное" -> "♡"; else -> "●" }, fontSize = 20.sp) },
+                    label = { Text(tab, fontSize = 10.sp) },
+                    colors = NavigationBarItemDefaults.colors(selectedIconColor = Color.White, selectedTextColor = Color.White,
+                        indicatorColor = Accent, unselectedIconColor = Muted, unselectedTextColor = Muted))
+            }
+        }
+    }
+}
+
+@Composable
+private fun DirectChatScreen(friend: MovnetFriend, ownUserId: Int, token: String, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var messages by remember { mutableStateOf<List<MovnetMessage>>(emptyList()) }
+    var input by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var sending by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(true) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    LaunchedEffect(friend.userId, token) {
+        while (true) {
+            try {
+                val data = MovnetApi.loadDirectMessages(friend.userId, messages.lastOrNull()?.id ?: 0, token)
+                val fresh = (0 until data.length()).map { i ->
+                    val item = data.getJSONObject(i)
+                    MovnetMessage(item.optInt("id"), item.optInt("sender_id") == ownUserId, item.optString("body"))
+                }
+                if (fresh.isNotEmpty()) messages = (messages + fresh).distinctBy { it.id }
+                error = null
+            } catch (e: Exception) { error = e.message ?: "Не удалось обновить сообщения" }
+            finally { loading = false }
+            kotlinx.coroutines.delay(2500)
+        }
+    }
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+    }
+
+    Column(Modifier.fillMaxSize().background(Background)) {
+        Row(Modifier.fillMaxWidth().background(SurfaceDark).padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("‹", color = Color.White, fontSize = 30.sp, modifier = Modifier.clickable { onBack() }.padding(horizontal = 8.dp))
+            Box(Modifier.size(42.dp).background(Brush.linearGradient(listOf(Accent, Color(0xFF7045C5))),
+                RoundedCornerShape(15.dp)), contentAlignment = Alignment.Center) {
+                Text(friend.name.firstOrNull()?.uppercase() ?: "M", fontWeight = FontWeight.Bold)
+            }
+            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                Text(friend.name.ifBlank { "Пользователь MOVNET" }, fontWeight = FontWeight.Bold)
+                Text("MOVNET • личный чат", color = Muted, fontSize = 11.sp)
+            }
+            Text("⋮", color = Muted, fontSize = 24.sp, modifier = Modifier.padding(horizontal = 8.dp))
+        }
+        if (loading && messages.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Accent) }
+        } else {
+            androidx.compose.foundation.lazy.LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(messages, key = { it.id }) { message ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.mine) Arrangement.End else Arrangement.Start) {
+                        Column(Modifier.widthIn(max = 300.dp).background(
+                            if (message.mine) Color(0xFF4A285C) else SurfaceDark,
+                            RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp,
+                                bottomStart = if (message.mine) 18.dp else 5.dp,
+                                bottomEnd = if (message.mine) 5.dp else 18.dp)
+                        ).padding(horizontal = 14.dp, vertical = 10.dp) {
+                            Text(message.body, color = Color.White, fontSize = 15.sp, lineHeight = 21.sp)
+                        }
+                    }
+                }
+                if (messages.isEmpty()) item { Text("Начни разговор — отправь первое сообщение 👋", color = Muted, modifier = Modifier.fillMaxWidth().padding(20.dp)) }
+            }
+        }
+        error?.let { Text(it, color = Color(0xFFFF7A8A), fontSize = 11.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) }
+        Row(Modifier.fillMaxWidth().background(SurfaceDark).navigationBarsPadding().imePadding()
+            .padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(value = input, onValueChange = { input = it.take(2000) },
+                modifier = Modifier.weight(1f), placeholder = { Text("Сообщение…") },
+                shape = RoundedCornerShape(24.dp), maxLines = 4,
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Accent, unfocusedBorderColor = Color(0xFF343947),
+                    focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+            Spacer(Modifier.width(8.dp))
+            IconButton(enabled = input.isNotBlank() && !sending, onClick = {
+                val body = input.trim()
+                scope.launch {
+                    sending = true
+                    try {
+                        MovnetApi.sendDirectMessage(friend.userId, body, token)
+                        input = ""
+                        val data = MovnetApi.loadDirectMessages(friend.userId, messages.lastOrNull()?.id ?: 0, token)
+                        val fresh = (0 until data.length()).map { i -> val item = data.getJSONObject(i); MovnetMessage(item.optInt("id"), item.optInt("sender_id") == ownUserId, item.optString("body")) }
+                        if (fresh.isNotEmpty()) messages = (messages + fresh).distinctBy { it.id }
+                        error = null
+                    } catch (e: Exception) { error = e.message ?: "Не удалось отправить сообщение" }
+                    finally { sending = false }
+                }
+            }) {
+                Text(if (sending) "…" else "➤", color = if (input.isNotBlank()) Accent else Muted, fontSize = 23.sp)
+            }
+        }
+    }
+}
+
