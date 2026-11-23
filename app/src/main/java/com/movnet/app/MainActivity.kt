@@ -1466,7 +1466,7 @@ private fun DirectChatScreen(friend: MovnetFriend, ownUserId: Int, token: String
                         activeCall = IncomingMovnetCall(result.optInt("call_id"), friend.name, "audio")
                     } catch (e: Exception) { error = e.message ?: "Не удалось начать звонок" }
                 }
-            }) { Icon(Icons.Default.Call, contentDescription = "Аудиозвонок", tint = Accent) }
+            }) { Text("☎", color = Accent, fontSize = 22.sp) }
             IconButton(onClick = {
                 scope.launch {
                     try {
@@ -1474,7 +1474,7 @@ private fun DirectChatScreen(friend: MovnetFriend, ownUserId: Int, token: String
                         activeCall = IncomingMovnetCall(result.optInt("call_id"), friend.name, "video")
                     } catch (e: Exception) { error = e.message ?: "Не удалось начать видеозвонок" }
                 }
-            }) { Icon(Icons.Default.Videocam, contentDescription = "Видеозвонок", tint = Accent) }
+            }) { Text("▣", color = Accent, fontSize = 22.sp) }
             Text("⋮", color = Muted, fontSize = 24.sp, modifier = Modifier.padding(horizontal = 8.dp))
         }
         if (loading && messages.isEmpty()) {
@@ -1490,7 +1490,7 @@ private fun DirectChatScreen(friend: MovnetFriend, ownUserId: Int, token: String
                             RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp,
                                 bottomStart = if (message.mine) 18.dp else 5.dp,
                                 bottomEnd = if (message.mine) 5.dp else 18.dp)
-                        ).padding(horizontal = 14.dp, vertical = 10.dp) {
+                        ).padding(horizontal = 14.dp, vertical = 10.dp)) {
                             Text(message.body, color = Color.White, fontSize = 15.sp, lineHeight = 21.sp)
                         }
                     }
